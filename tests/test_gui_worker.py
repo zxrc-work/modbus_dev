@@ -120,8 +120,8 @@ class GuiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-        from PySide6.QtWidgets import QApplication
-        cls.app = QApplication.instance() or QApplication([])
+        from modbus_dev.gui import create_application
+        cls.app = create_application()
 
     def setUp(self):
         from modbus_dev.gui import Workbench
@@ -159,6 +159,55 @@ class GuiTests(unittest.TestCase):
             self.window.apply_config(config)
             self.assertEqual(self.window.configuration(), config)
 
+    def test_mode_and_source_choices_keep_protocol_values(self):
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+        mode = self.window.fields["mode"]
+        mode.setFocus()
+        QTest.keyClick(mode, Qt.Key_Down)
+        self.assertEqual(self.window.text("mode"), "rtu-slave")
+        self.assertFalse(self.window.serial_box.isHidden())
+        self.assertTrue(self.window.tcp_box.isHidden())
+        before = mode.currentIndex()
+        mode.showPopup()
+        self.app.processEvents()
+        QTest.keyClick(mode.view(), Qt.Key_Down)
+        QTest.keyClick(mode.view(), Qt.Key_Escape)
+        self.assertEqual(mode.currentIndex(), before)
+        mode.showPopup()
+        self.app.processEvents()
+        QTest.keyClick(mode.view(), Qt.Key_End)
+        QTest.keyClick(mode.view(), Qt.Key_Return)
+        self.assertEqual(self.window.text("mode"), "rtu-master")
+        self.assertFalse(self.window.master_box.isHidden())
+        source = self.window.fields["source.kind"]
+        source.setCurrentIndex(source.findData("sine"))
+        self.assertTrue(self.window.fields["source.amplitude"].isEnabled())
+        source.setCurrentIndex(source.findData("constant"))
+        self.assertFalse(self.window.fields["source.amplitude"].isEnabled())
+
+    def test_summary_uses_counters_from_the_completed_session(self):
+        self.window.counter_mode = "tcp-slave"
+        self.window.show_counters(dict(source_updates=17, slave_request=3, rx=4, tx=3))
+        self.assertEqual([label.text() for label in self.window.metric_values], ["17", "3", "4", "3"])
+        self.window.apply_config(TaskConfig.from_mapping(dict(mode="rtu-master", serial=dict(port="TEST"))))
+        self.assertEqual([label.text() for label in self.window.metric_values], ["17", "3", "4", "3"])
+        self.assertEqual(self.window.metric_labels[0].text(), "数据更新")
+
+    def test_visible_controls_share_the_same_height(self):
+        from PySide6.QtWidgets import QComboBox, QLineEdit, QPushButton
+        from modbus_dev.gui_theme import METRICS
+        for mode in ("tcp-slave", "rtu-slave", "rtu-master"):
+            self.window.apply_config(TaskConfig.from_mapping(dict(mode=mode, serial=dict(port="TEST"))))
+            for tab in range(self.window.config_tabs.count()):
+                self.window.config_tabs.setCurrentIndex(tab)
+                self.app.processEvents()
+                widgets = [widget for kind in (QComboBox, QLineEdit, QPushButton)
+                           for widget in self.window.findChildren(kind)]
+                for widget in widgets:
+                    if widget.isVisible():
+                        self.assertEqual(widget.height(), METRICS.control_height, widget.objectName() or widget.text())
+
     def test_invalid_configuration_never_starts_worker(self):
         self.window.fields["addresses"].setText("0, 1")
         with patch.object(self.window, "error") as error:
@@ -190,9 +239,12 @@ class GuiTests(unittest.TestCase):
     def test_worker_crash_is_visible_and_releases_ui(self):
         self.window.start()
         self.wait_for(lambda: self.window.status.text() == "运行中")
+        self.window.monitor_tabs.setCurrentIndex(1)
         self.window.process.kill()
         self.wait_for(lambda: self.window.temporary is None)
         self.assertIn("异常结束", self.window.status.text())
+        self.assertEqual(self.window.status.property("tone"), "error")
+        self.assertEqual(self.window.monitor_tabs.currentIndex(), 0)
         self.assertTrue(self.window.start_button.isEnabled())
         marker = json.loads((self.window.last_output / "gui-worker-error.json").read_text(encoding="utf-8"))
         self.assertFalse(marker["evidence_complete"])

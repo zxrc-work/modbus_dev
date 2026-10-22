@@ -1,29 +1,51 @@
 """Optional PySide6 single-session workbench; communication stays in a worker."""
 from datetime import datetime
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
 import uuid
 
 from PySide6.QtCore import QProcess, QTimer, QUrl, Qt
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QDesktopServices, QFont
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QGroupBox,
-    QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit,
+    QHBoxLayout, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit,
     QPushButton, QScrollArea, QSplitter, QTableWidget, QTableWidgetItem,
-    QVBoxLayout, QWidget, QHeaderView,
+    QTabWidget, QVBoxLayout, QWidget, QHeaderView,
 )
 
 from .application.session import check_capabilities
 from .domain.config import TaskConfig, load_config
+from .gui_theme import METRICS, application_palette, application_stylesheet, ui_font
+from .gui_widgets import ComboBox, WorkbenchStyle, card, label, refresh_style
+
+
+CHOICE_LABELS = {
+    "tcp-slave": "TCP 只读从站", "rtu-slave": "RTU 只读从站", "rtu-master": "RTU 主站",
+    "continuous": "连续运行", "strict": "严格模式", "constant": "常量", "sine": "正弦波",
+}
+COUNTER_LABELS = {
+    "source_updates": "数据更新", "slave_request": "从站请求", "rx": "接收调用", "tx": "发送调用",
+    "listener_opens": "监听打开", "port_opens": "串口打开", "open_errors": "打开失败",
+    "io_errors": "I/O 错误", "write_attempts": "发送调用", "ack": "确认应答", "read": "读回应答",
+    "ack_ambiguous": "关联不确定的确认", "read_ambiguous": "关联不确定的读回",
+    "exception": "协议异常", "exception_ambiguous": "关联不确定的异常", "timeout": "应答超时",
+    "schedule_late": "调度迟发", "schedule_missed": "错过交易预算", "skipped_slots": "跳过周期",
+    "port_unavailable": "串口不可用", "readback_mismatch": "读回不一致",
+}
 
 
 class Workbench(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Modbus Dev · 通信调试台")
-        self.resize(1120, 830)
+        # These are logical pixels. Qt handles per-monitor scaling; do not multiply by DPR.
+        bounds = self.screen().availableGeometry()
+        width, height = max(1, bounds.width() - 32), max(1, bounds.height() - 48)
+        self.setMinimumSize(min(940, width), min(580, height))
+        self.resize(min(METRICS.window_width, width), min(METRICS.window_height, height))
         self.process = None
         self.temporary = None
         self.buffer = bytearray()
@@ -34,91 +56,164 @@ class Workbench(QMainWindow):
         self.last_output = None
         self.preview_dropped = 0
         self.fields = {}
+        self.last_counters = {}
+        self.counter_mode = None
         self.base_config = TaskConfig(mode="tcp-slave", duration_s=0).to_mapping()
+        self._build_ui()
+        self.stop_timer = QTimer(self)
+        self.stop_timer.setSingleShot(True)
+        self.stop_timer.timeout.connect(self.force_stop)
+        self.fields["mode"].currentIndexChanged.connect(self.mode_changed)
+        self.fields["source.kind"].currentIndexChanged.connect(self.mode_changed)
+        for key in ("host", "port", "unit", "serial.port", "serial.baud"):
+            self.fields[key].textChanged.connect(self.update_connection_summary)
+        self.apply_config(TaskConfig.from_mapping(self.base_config))
+
+    def _build_ui(self):
         container = QWidget()
+        container.setObjectName("appRoot")
         outer = QVBoxLayout(container)
-        outer.setContentsMargins(22, 18, 22, 18)
-        title = QLabel("Modbus Dev")
-        title.setStyleSheet("font-size: 25px; font-weight: 700; color: #142c46")
-        outer.addWidget(title)
-        subtitle = QLabel("单会话通信调试  /  RTU 主站 · RTU / TCP 只读从站")
-        subtitle.setStyleSheet("color: #5a6b7d; margin-bottom: 10px")
-        outer.addWidget(subtitle)
-        splitter = QSplitter()
-        outer.addWidget(splitter, 1)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setMinimumWidth(410)
-        self.editor = QWidget()
-        form_layout = QVBoxLayout(self.editor)
+        outer.setContentsMargins(*([METRICS.page_padding] * 4))
+        outer.setSpacing(METRICS.page_spacing)
+        header = QHBoxLayout()
+        header.setSpacing(METRICS.section_spacing)
+        mark = label("M")
+        mark.setObjectName("brandMark")
+        mark.setFixedSize(44, 44)
+        mark.setAlignment(Qt.AlignCenter)
+        header.addWidget(mark)
+        heading = QVBoxLayout()
+        heading.setSpacing(2)
+        heading.addWidget(label("Modbus Dev", "title"))
+        heading.addWidget(label("通信调试工作台", "caption"))
+        header.addLayout(heading)
+        header.addStretch()
+        header.addWidget(label("RTU / TCP  ·  float32", "caption"))
+        outer.addLayout(header)
+        self.workspace = QSplitter(Qt.Horizontal)
+        self.workspace.setChildrenCollapsible(False)
+        self.workspace.setHandleWidth(METRICS.page_spacing)
+        self._build_editor()
+        self._build_runtime()
+        self.workspace.setStretchFactor(0, 0)
+        self.workspace.setStretchFactor(1, 1)
+        self.workspace.setSizes([430, 770])
+        outer.addWidget(self.workspace, 1)
+        self.setCentralWidget(container)
+
+    def _build_editor(self):
+        self.editor, form_layout = card()
+        self.editor.setMinimumWidth(374)
+        form_layout.addWidget(label("会话配置", "section"))
+        form_layout.addWidget(label("设置通信连接、点表和数据源。", "caption"))
         self.config_buttons = QWidget()
         config_actions = QHBoxLayout(self.config_buttons)
         config_actions.setContentsMargins(0, 0, 0, 0)
-        for label, callback in (("加载配置", self.load), ("保存配置", self.save), ("校验", self.validate)):
-            button = QPushButton(label)
+        config_actions.setSpacing(METRICS.spacing)
+        for caption, callback in (("加载配置", self.load), ("保存配置", self.save), ("校验", self.validate)):
+            button = QPushButton(caption)
             button.clicked.connect(callback)
             config_actions.addWidget(button)
         form_layout.addWidget(self.config_buttons)
+        self.config_tabs = QTabWidget()
+        form_layout.addWidget(self.config_tabs, 1)
 
-        def group(title, rows):
+        def page(title):
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            body = QWidget()
+            body.setObjectName("configPage")
+            layout = QVBoxLayout(body)
+            layout.setContentsMargins(0, METRICS.section_spacing, METRICS.spacing, METRICS.spacing)
+            layout.setSpacing(METRICS.page_spacing)
+            scroll.setWidget(body)
+            self.config_tabs.addTab(scroll, title)
+            return layout
+
+        def group(layout, title, rows):
             box = QGroupBox(title)
             form = QFormLayout(box)
-            form.setSpacing(9)
-            for key, label, choices in rows:
-                widget = QComboBox() if choices else QLineEdit()
+            form.setContentsMargins(0, METRICS.section_spacing, 0, 0)
+            form.setHorizontalSpacing(METRICS.section_spacing)
+            form.setVerticalSpacing(METRICS.spacing)
+            form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+            for key, caption, choices in rows:
+                widget = ComboBox() if choices else QLineEdit()
                 if choices:
-                    widget.addItems(choices)
+                    for value in choices:
+                        widget.addItem(CHOICE_LABELS.get(value, value), value)
                 widget.setObjectName(key)
+                widget.setAccessibleName(caption)
                 self.fields[key] = widget
-                form.addRow(label, widget)
-            form_layout.addWidget(box)
+                form.addRow(caption, widget)
+            layout.addWidget(box)
             return box
 
-        group("会话与点表", [("mode", "通信模式", ["tcp-slave", "rtu-slave", "rtu-master"]),
-                            ("policy", "运行策略", ["continuous", "strict"]),
-                            ("unit", "站号", None), ("addresses", "float32 起始地址", None),
-                            ("byte_order", "字节排列", ["B1234", "B4321", "B2143", "B3412"])])
-        self.tcp_box = group("TCP 监听", [("host", "绑定地址", None), ("port", "端口", None)])
-        self.serial_box = group("串口", [("serial.port", "端口名称", None), ("serial.baud", "波特率", None),
-                                       ("serial.parity", "校验位", ["N", "E", "O"]),
-                                       ("serial.stop_bits", "停止位", ["1", "2"])])
+        connection = page("连接与点表")
+        group(connection, "通信模式", [("mode", "模式", ["tcp-slave", "rtu-slave", "rtu-master"]),
+                                      ("policy", "运行策略", ["continuous", "strict"])])
+        self.tcp_box = group(connection, "TCP 监听", [("host", "绑定地址", None), ("port", "端口", None)])
+        self.serial_box = group(connection, "串口连接", [("serial.port", "串口", None), ("serial.baud", "波特率", None),
+                                                       ("serial.parity", "校验位", ["N", "E", "O"]),
+                                                       ("serial.stop_bits", "停止位", ["1", "2"])])
         self.rts = QCheckBox("驱动 RTS 切换（仅 Windows）")
         self.serial_box.layout().addRow(self.rts)
         refresh = QPushButton("查看可用串口")
         refresh.clicked.connect(self.ports)
         self.serial_box.layout().addRow(refresh)
-        group("数据与时序", [("source.kind", "数据源", ["constant", "sine"]),
-                            ("source.value", "常量 / 偏置", None), ("source.amplitude", "正弦振幅", None),
-                            ("source.frequency_hz", "正弦频率 Hz", None), ("period_ms", "数据周期 ms", None),
-                            ("timeout_ms", "I/O 超时 ms", None), ("duration_s", "时长 s（0 = 持续）", None)])
-        self.master_box = group("主站读回与调度", [("readback_every", "每 N 周期读回（0 = 关闭）", None),
-                                                ("read_function", "读回功能码", ["3", "4"]),
-                                                ("schedule_tolerance_percent", "调度容差 %", None)])
-        form_layout.addStretch()
-        scroll.setWidget(self.editor)
-        splitter.addWidget(scroll)
+        points = group(connection, "寄存器点表", [("unit", "站号", None), ("addresses", "起始地址", None),
+                                                ("byte_order", "字节排列", ["B1234", "B4321", "B2143", "B3412"])])
+        note = label("float32 零基地址，用英文逗号分隔，如 0, 2, 4, 6。", "caption")
+        note.setWordWrap(True)
+        points.layout().addRow(note)
+        connection.addStretch()
+        data = page("数据与时序")
+        group(data, "数据源", [("source.kind", "数据源", ["constant", "sine"]),
+                              ("source.value", "常量 / 偏置", None), ("source.amplitude", "正弦振幅", None),
+                              ("source.frequency_hz", "频率 Hz", None)])
+        group(data, "运行时序", [("period_ms", "数据周期 ms", None), ("timeout_ms", "I/O 超时 ms", None),
+                                ("duration_s", "运行时长 s", None)])
+        self.fields["duration_s"].setToolTip("0 表示持续运行，直到手动停止。")
+        self.fields["duration_s"].setPlaceholderText("0 = 持续运行")
+        self.master_box = group(data, "主站读回与调度", [("readback_every", "读回间隔 / 周期", None),
+                                                      ("read_function", "读回功能码", ["3", "4"]),
+                                                      ("schedule_tolerance_percent", "调度容差 %", None)])
+        self.fields["readback_every"].setToolTip("每 N 周期读回一次；0 表示关闭读回。")
+        data.addStretch()
+        self.workspace.addWidget(self.editor)
+
+    def _build_runtime(self):
+        self.runtime_scroll = QScrollArea()
+        self.runtime_scroll.setWidgetResizable(True)
+        self.runtime_scroll.setMinimumWidth(430)
+        self.runtime_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         right = QWidget()
+        right.setObjectName("runtimeContent")
         layout = QVBoxLayout(right)
-        self.status = QLabel("就绪 · 尚未启动")
-        self.status.setStyleSheet("background: #e8eff7; color: #14395e; padding: 15px; font-size: 17px; font-weight: 600")
-        layout.addWidget(self.status)
-        self.hint = QLabel("从站仅响应读取；数据时钟与主站轮询频率无关。")
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(METRICS.page_spacing)
+        control, controls = card()
+        heading = QHBoxLayout()
+        self.connection_title = label("TCP 只读从站", "section")
+        heading.addWidget(self.connection_title)
+        heading.addStretch()
+        self.status = label("就绪 · 尚未启动")
+        self.status.setObjectName("sessionStatus")
+        heading.addWidget(self.status)
+        controls.addLayout(heading)
+        self.connection_summary = label("", "caption")
+        self.connection_summary.setWordWrap(True)
+        controls.addWidget(self.connection_summary)
+        self.hint = label("")
+        self.hint.setObjectName("sessionHint")
         self.hint.setWordWrap(True)
-        layout.addWidget(self.hint)
-        location = QGroupBox("结果保存位置")
-        location_layout = QVBoxLayout(location)
-        self.output = QLineEdit(str(Path.cwd() / "results"))
-        self.output.setObjectName("output")
-        location_layout.addWidget(self.output)
-        browse = QPushButton("选择父目录")
-        browse.clicked.connect(self.choose_output)
-        location_layout.addWidget(browse)
-        self.output_box = location
-        layout.addWidget(location)
+        controls.addWidget(self.hint)
         actions = QHBoxLayout()
+        actions.setSpacing(METRICS.spacing)
         self.start_button = QPushButton("启动会话")
-        self.start_button.setStyleSheet("QPushButton { background: #1768ac; color: white; font-weight: bold; padding: 10px; }"
-                                       "QPushButton:disabled { background: #d5dce3; color: #697989; }")
+        self.start_button.setProperty("role", "primary")
         self.start_button.clicked.connect(self.start)
         self.stop_button = QPushButton("停止并保存")
         self.stop_button.setEnabled(False)
@@ -127,39 +222,75 @@ class Workbench(QMainWindow):
         self.open_button.setEnabled(False)
         self.open_button.clicked.connect(self.open_output)
         for button in (self.start_button, self.stop_button, self.open_button):
-            actions.addWidget(button)
-        layout.addLayout(actions)
-        self.recording = QLabel("日志证据：未开始")
-        self.recording.setWordWrap(True)
-        layout.addWidget(self.recording)
+            actions.addWidget(button, 1)
+        controls.addLayout(actions)
+        location = QWidget()
+        location_layout = QVBoxLayout(location)
+        location_layout.setContentsMargins(0, 0, 0, 0)
+        location_layout.setSpacing(6)
+        location_layout.addWidget(label("结果父目录", "caption"))
+        location_row = QHBoxLayout()
+        location_row.setSpacing(METRICS.spacing)
+        self.output = QLineEdit(str(Path.cwd() / "results"))
+        self.output.setObjectName("output")
+        self.output.setAccessibleName("结果父目录")
+        location_row.addWidget(self.output, 1)
+        browse = QPushButton("浏览…")
+        browse.clicked.connect(self.choose_output)
+        location_row.addWidget(browse)
+        location_layout.addLayout(location_row)
+        self.output_box = location
+        controls.addWidget(location)
+        layout.addWidget(control)
+        metrics, metrics_layout = card()
+        row = QHBoxLayout()
+        row.setSpacing(METRICS.section_spacing)
+        self.metric_labels, self.metric_values = [], []
+        for _ in range(4):
+            column = QVBoxLayout()
+            column.setSpacing(3)
+            value, caption = label("—", "metric"), label("", "caption")
+            self.metric_values.append(value)
+            self.metric_labels.append(caption)
+            column.addWidget(value)
+            column.addWidget(caption)
+            row.addLayout(column, 1)
+        metrics_layout.addLayout(row)
+        layout.addWidget(metrics)
+        monitor, monitor_layout = card()
+        monitor_layout.addWidget(label("运行记录", "section"))
+        self.monitor_tabs = QTabWidget()
         self.stats = QTableWidget(0, 2)
         self.stats.setHorizontalHeaderLabels(["统计项", "数值"])
-        self.stats.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.stats.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.stats.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.stats.verticalHeader().hide()
+        self.stats.verticalHeader().setDefaultSectionSize(36)
         self.stats.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.stats.setMaximumHeight(220)
-        layout.addWidget(self.stats)
-        layout.addWidget(QLabel("运行日志 · 界面最多保留 2000 行，完整报文见结果目录"))
+        self.stats.setSelectionBehavior(QTableWidget.SelectRows)
+        self.stats.setShowGrid(False)
         self.logs = QPlainTextEdit()
+        self.logs.setFont(ui_font(monospace=True))
         self.logs.setReadOnly(True)
         self.logs.setMaximumBlockCount(2000)
-        layout.addWidget(self.logs, 1)
-        self.path_label = QLabel("每次运行自动创建独立目录，不覆盖已有结果。")
+        self.logs.setMinimumHeight(140)
+        self.logs.setPlaceholderText("启动会话后，运行日志将在这里显示。\n界面保留最近 2000 行，完整日志自动保存到结果目录。")
+        self.monitor_tabs.addTab(self.logs, "运行日志")
+        self.monitor_tabs.addTab(self.stats, "详细统计")
+        monitor_layout.addWidget(self.monitor_tabs, 1)
+        self.recording = label("日志证据：未开始", "caption")
+        self.recording.setWordWrap(True)
+        monitor_layout.addWidget(self.recording)
+        self.path_label = label("每次运行自动创建独立目录。", "caption")
         self.path_label.setWordWrap(True)
-        self.path_label.setTextFormat(Qt.PlainText)
-        layout.addWidget(self.path_label)
-        splitter.addWidget(right)
-        splitter.setSizes([430, 650])
-        self.setCentralWidget(container)
-        self.stop_timer = QTimer(self)
-        self.stop_timer.setSingleShot(True)
-        self.stop_timer.timeout.connect(self.force_stop)
-        self.fields["mode"].currentTextChanged.connect(self.mode_changed)
-        self.fields["source.kind"].currentTextChanged.connect(self.mode_changed)
-        self.apply_config(TaskConfig.from_mapping(self.base_config))
+        monitor_layout.addWidget(self.path_label)
+        layout.addWidget(monitor, 1)
+        self.runtime_scroll.setWidget(right)
+        self.workspace.addWidget(self.runtime_scroll)
 
     def text(self, key):
         field = self.fields[key]
-        return field.currentText() if isinstance(field, QComboBox) else field.text().strip()
+        return str(field.currentData()) if isinstance(field, QComboBox) else field.text().strip()
 
     def apply_config(self, config):
         check_capabilities(config)
@@ -170,7 +301,7 @@ class Workbench(QMainWindow):
                 value = value[part]
             text = ", ".join(map(str, value)) if key == "addresses" else str(value)
             if isinstance(field, QComboBox):
-                field.setCurrentText(text)
+                field.setCurrentIndex(field.findData(text))
             else:
                 field.setText(text)
         self.rts.setChecked(config.serial.rts_toggle)
@@ -212,16 +343,33 @@ class Workbench(QMainWindow):
             self.fields[key].setEnabled(self.text("source.kind") == "sine")
         self.hint.setText("主站会使用 FC16 写入设备；请核对串口、站号与点表。" if mode == "rtu-master" else
                           "只读从站 · FC03/04 · 完整 float32 点 · 不接受写入")
+        self.hint.setProperty("writing", mode == "rtu-master")
+        refresh_style(self.hint)
+        self.update_connection_summary()
+        self.update_metrics()
+
+    def update_connection_summary(self, *_):
+        mode = self.text("mode")
+        self.connection_title.setText(CHOICE_LABELS.get(mode, mode))
+        endpoint = (f"{self.text('host')}:{self.text('port')}" if mode == "tcp-slave" else
+                    f"{self.text('serial.port') or '未选择串口'}  ·  {self.text('serial.baud')} baud")
+        self.connection_summary.setText(f"{endpoint}  ·  站号 {self.text('unit')}")
+
+    def set_status(self, text, tone="idle"):
+        self.status.setText(text)
+        self.status.setProperty("tone", tone)
+        refresh_style(self.status)
 
     def error(self, error):
-        self.status.setText("操作失败")
+        self.set_status("操作失败", "error")
+        self.monitor_tabs.setCurrentIndex(0)
         self.logs.appendPlainText(str(error))
         QMessageBox.warning(self, "Modbus Dev", str(error))
 
     def validate(self):
         try:
             self.configuration()
-            self.status.setText("配置有效 · 尚未打开通信端口")
+            self.set_status("配置有效 · 尚未连接", "success")
         except Exception as exc:
             self.error(exc)
 
@@ -230,7 +378,7 @@ class Workbench(QMainWindow):
         if path:
             try:
                 self.apply_config(load_config(path))
-                self.status.setText("配置已加载")
+                self.set_status("配置已加载", "success")
             except Exception as exc:
                 self.error(exc)
 
@@ -240,7 +388,7 @@ class Workbench(QMainWindow):
             path, _ = QFileDialog.getSaveFileName(self, "保存配置", "config.json", "JSON (*.json)")
             if path:
                 Path(path).write_text(json.dumps(config.to_mapping(), ensure_ascii=False, indent=2), encoding="utf-8")
-                self.status.setText("配置已保存")
+                self.set_status("配置已保存", "success")
         except Exception as exc:
             self.error(exc)
 
@@ -290,7 +438,9 @@ class Workbench(QMainWindow):
             self.preview_dropped = 0
             self.forced = False
             self.logs.clear()
-            self.stats.setRowCount(0)
+            self.counter_mode = config.mode
+            self.show_counters({})
+            self.monitor_tabs.setCurrentIndex(0)
             self.recording.setText("日志证据：等待工作进程")
             self.path_label.setText(str(self.last_output))
             self.open_button.setEnabled(True)
@@ -302,7 +452,7 @@ class Workbench(QMainWindow):
             self.process.finished.connect(self.finished)
             self.process.errorOccurred.connect(self.process_error)
             self.set_running(True)
-            self.status.setText("正在启动…")
+            self.set_status("正在启动…", "active")
             arguments = ["worker", str(path), "--output", str(self.last_output)]
             if not getattr(sys, "frozen", False):
                 arguments = ["-m", "modbus_dev"] + arguments
@@ -350,7 +500,10 @@ class Workbench(QMainWindow):
             return
         states = {"idle": "准备中", "starting": "启动中", "running": "运行中", "reconnecting": "等待重连",
                   "stopping": "正在停止", "stopped": "已停止", "failed": "运行失败"}
-        self.status.setText(states.get(packet["state"], packet["state"]))
+        state = packet["state"]
+        tone = {"running": "active", "starting": "active", "reconnecting": "warning",
+                "stopping": "warning", "failed": "error"}.get(state, "idle")
+        self.set_status(states.get(state, state), tone)
         counters = packet.get("counters", {})
         self.show_counters(counters)
         recording = packet.get("recording", {})
@@ -358,17 +511,31 @@ class Workbench(QMainWindow):
                                f"丢失 {recording.get('dropped', 0)}  ·  界面预览丢失 {packet.get('preview_dropped', 0)}")
 
     def show_counters(self, counters):
+        self.last_counters = dict(counters)
         self.stats.setRowCount(len(counters))
         for row, (key, value) in enumerate(sorted(counters.items())):
-            self.stats.setItem(row, 0, QTableWidgetItem(key))
+            item = QTableWidgetItem(COUNTER_LABELS.get(key, key))
+            item.setToolTip(key)
+            self.stats.setItem(row, 0, item)
             self.stats.setItem(row, 1, QTableWidgetItem(str(value)))
+        self.update_metrics()
+
+    def update_metrics(self):
+        mode = self.counter_mode or self.text("mode")
+        keys = (("write_attempts", "ack", "read", "schedule_late") if mode == "rtu-master" else
+                ("source_updates", "slave_request", "rx", "tx"))
+        for key, caption, value in zip(keys, self.metric_labels, self.metric_values):
+            caption.setText(COUNTER_LABELS[key])
+            caption.setToolTip(key)
+            value.setText(str(self.last_counters.get(key, 0)) if self.last_counters else "—")
+            value.setToolTip(f"{COUNTER_LABELS[key]} ({key})")
 
     def stop(self):
         if self.active():
             if self.stop_timer.isActive():
                 return
             self.stop_button.setEnabled(False)
-            self.status.setText("正在停止并保存…")
+            self.set_status("正在停止并保存…", "warning")
             self.process.write(b'{"schema_version":1,"command":"stop"}\n')
             self.stop_timer.start(5000)
 
@@ -390,7 +557,8 @@ class Workbench(QMainWindow):
         abnormal = (self.forced or self.result is None or exit_status == QProcess.CrashExit
                     or exit_code != self.result.get("exit_code"))
         if abnormal:
-            self.status.setText("异常结束 · 证据可能不完整")
+            self.set_status("异常结束 · 证据可能不完整", "error")
+            self.monitor_tabs.setCurrentIndex(0)
             self.recording.setText("日志证据：工作进程异常退出，请检查结果文件")
             if self.last_output and self.last_output.is_dir():
                 try:
@@ -401,7 +569,10 @@ class Workbench(QMainWindow):
                     self.logs.appendPlainText(f"无法保存异常记录：{exc}")
         else:
             code = self.result.get("exit_code")
-            self.status.setText("已停止 · 用户请求" if code == 130 else "已完成" if code == 0 else "运行失败")
+            self.set_status("已停止 · 用户请求" if code == 130 else "已完成" if code == 0 else "运行失败",
+                            "success" if code == 0 else "idle" if code == 130 else "error")
+            if code not in (0, 130):
+                self.monitor_tabs.setCurrentIndex(0)
             self.logs.appendPlainText(json.dumps(self.result, ensure_ascii=False, indent=2))
             try:
                 summary = json.loads((self.last_output / "summary.json").read_text(encoding="utf-8"))
@@ -425,14 +596,38 @@ class Workbench(QMainWindow):
         else:
             event.accept()
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if not hasattr(self, "workspace"):
+            return
+        orientation = Qt.Vertical if self.width() < 920 else Qt.Horizontal
+        if self.workspace.orientation() != orientation:
+            self.workspace.setOrientation(orientation)
+            self.editor.setMinimumHeight(220 if orientation == Qt.Vertical else 0)
+            self.runtime_scroll.setMinimumHeight(220 if orientation == Qt.Vertical else 0)
+            self.workspace.setSizes([300, 450] if orientation == Qt.Vertical else [430, 770])
+
 
 def create_application():
-    app = QApplication.instance() or QApplication(sys.argv[:1])
-    app.setStyle("Fusion")
-    app.setStyleSheet("QWidget { font-family: 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif; font-size: 12px; }"
-                      "QGroupBox { font-weight: 600; margin-top: 12px; padding-top: 14px; }"
-                      "QGroupBox::title { subcontrol-origin: margin; left: 10px; }"
-                      "QLineEdit, QComboBox { padding: 5px; min-height: 20px; } QPushButton { padding: 6px; }")
+    existing = QApplication.instance()
+    if existing is not None:
+        return existing
+    # Match the DCS workbench's pixel-aligned Windows text rendering. Respect an
+    # explicit platform (e.g. offscreen) and never disable Qt's high-DPI scaling.
+    if sys.platform == "win32":
+        os.environ.setdefault("QT_QPA_PLATFORM", "windows:fontengine=gdi")
+    if "QT_SCALE_FACTOR_ROUNDING_POLICY" not in os.environ:
+        QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
+    app = QApplication(sys.argv[:1])
+    app.setOrganizationName("ModbusDev")
+    app.setApplicationName("Modbus Dev")
+    app.setStyle(WorkbenchStyle())
+    app.setPalette(application_palette())
+    font = ui_font()
+    if sys.platform == "win32":
+        font.setHintingPreference(QFont.PreferFullHinting)
+    app.setFont(font)
+    app.setStyleSheet(application_stylesheet())
     return app
 
 
