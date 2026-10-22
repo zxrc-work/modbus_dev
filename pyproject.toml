@@ -9,8 +9,14 @@ description = "Modbus communication test and replay workbench"
 requires-python = ">=3.10"
 dependencies = ["pymodbus==3.11.4", "pyserial==3.5"]
 
+[project.optional-dependencies]
+gui = ["PySide6==6.7.2"]
+
 [project.scripts]
 modbus-dev = "modbus_dev.cli:main"
+
+[project.gui-scripts]
+modbus-dev-gui = "modbus_dev.gui:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

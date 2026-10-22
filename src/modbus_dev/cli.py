@@ -21,8 +21,21 @@ def main(argv=None):
     run.add_argument("config")
     run.add_argument("--output", required=True, help="new result directory; existing directories are refused")
     commands.add_parser("ports", help="list serial ports without opening them")
+    commands.add_parser("gui", help="open the optional desktop workbench")
+    worker = commands.add_parser("worker", help="GUI worker (versioned JSONL control on stdin/stdout)")
+    worker.add_argument("config")
+    worker.add_argument("--output", required=True)
     args = parser.parse_args(argv)
     try:
+        if args.command == "gui":
+            try:
+                from .gui import main as gui_main
+            except ImportError as error:
+                raise ImportError('GUI requires PySide6: pip install -e ".[gui]"') from error
+            return gui_main()
+        if args.command == "worker":
+            from .worker import main as worker_main
+            return worker_main(args.config, args.output)
         if args.command == "ports":
             from serial.tools.list_ports import comports
             print(json.dumps([dict(port=p.device, description=p.description, hwid=p.hwid) for p in comports()],

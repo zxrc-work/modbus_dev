@@ -9,9 +9,10 @@
 ## 当前可用能力
 
 RTU 主站 FC16 发数、常量/正弦源、FC03/04 读回验证、连续/严格策略、端口枚举、
-绝对周期调度、停止与重连、原始报文及有界异步日志。CLI 和未来 GUI 共用 SessionRunner。
+绝对周期调度、停止与重连、原始报文及有界异步日志。CLI 和 GUI 共用 SessionRunner。
 RTU/TCP 只读从站支持常量/正弦、FC03/04、独立数据时钟和完整 float32 快照；其他请求功能码被拒绝。
-**GUI 和打包尚未实现。DYN/CSV 离线输入推迟至 GUI 之后。validate 只校验配置，不代表功能已可运行。**
+PySide6 单会话 GUI 已实现配置编辑/加载/保存、启动/停止、状态、计数、日志预览和结果目录。
+**独立安装包尚未交付。DYN/CSV 离线输入继续暂缓。validate 只校验配置，不代表功能已可运行。**
 
 ```sh
 python -m pip install -e .
@@ -25,6 +26,25 @@ modbus-dev run examples/tcp-slave.json --output results/tcp-first-run
 modbus-dev run examples/rtu-slave.json --output results/rtu-slave-first-run
 python -m unittest discover -s tests -v
 ```
+
+## 桌面界面
+
+```sh
+python -m pip install -e ".[gui]"
+python -m modbus_dev gui
+# 安装后也可使用桌面入口：modbus-dev-gui
+```
+
+GUI 依赖可选，锁定 PySide6 6.7.2；普通 CLI 安装不需要 Qt。
+默认选择本机 TCP 只读从站。可切换 RTU 主站/从站、加载现有 JSON 示例、校验后启动。
+地址填写 float32 点的零基起始地址，用英文逗号分隔。RTU 主站启动后会执行 FC16 写入。
+结果父目录下每次创建独立时间戳目录，运行期间禁止修改配置；停止后可以修改并再次启动。
+关闭窗口会先请求工作进程收尾；超过 5 秒强制结束并标记证据可能不完整。
+工作进程崩溃时显示异常，已有结果目录另存 gui-worker-error.json，不伪造正常摘要。
+
+界面只显示最多 5 Hz 的状态和批量日志预览，最多保留 2000 行；完整报文仍写 events.jsonl。
+界面预览丢失与原始日志丢失分别计数。最终性能统计保存在 summary.json，并显示于结束日志。
+本轮验证 Windows 下 Qt 离屏渲染、工作进程和本机 TCP 读数；GUI 串口联调、麒麟桌面和安装包待验收。
 
 开发基线 Python 3.10+；锁定 PyModbus 3.11.4 和 pySerial 3.5，CLI 不需要 Qt。
 本轮 Windows 和麒麟均使用 Python 3.12.14 验证；未在系统 Python 3.7 上运行新包。
@@ -62,7 +82,7 @@ Ctrl+C 请求停止并收尾。退出码：0 按策略完成，1 运行失败，
 输出目录含 config.json、events.jsonl、summary.json；命令结束后 stdout 输出结果 JSON。
 原始收发、警告、错误及堆栈写入事件文件，通信线程不等待磁盘写入。
 队列溢出记录丢失数量和序号范围，并将 evidence_complete 标记为 false；写入失败或达到 32 MiB 上限会停止任务。
-轮转与 UI 展示在后续阶段实现。
+日志轮转在后续阶段实现；GUI 已提供限流预览。
 RTU 超时后无法仅凭相同 ACK 确认属于哪次请求，因此后续有效回复保守标记 ambiguous；重连不会清除此状态。
 
 - [协议库选型与边界](docs/pymodbus-evaluation.md)
