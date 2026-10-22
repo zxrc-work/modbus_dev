@@ -4,13 +4,13 @@
 
 - [需求](docs/requirements.md)
 - [架构设计](docs/design.md)
-- [实施状态和迁移清单](docs/implementation.md)
+- [实施状态与验证计划](docs/implementation.md)
 
 ## 当前可用能力
 
 RTU 主站 FC16 发数、常量/正弦源、FC03/04 读回验证、连续/严格策略、端口枚举、
 绝对周期调度、停止与重连、原始报文及有界异步日志。CLI 和未来 GUI 共用 SessionRunner。
-**DYN、RTU/TCP 从站、LFOM 扩展、GUI 和打包尚未实现。validate 只校验配置，不代表功能已可运行。**
+**DYN、RTU/TCP 从站、GUI 和打包尚未实现。validate 只校验配置，不代表功能已可运行。**
 
 ```sh
 python -m pip install -e .
@@ -26,7 +26,7 @@ python -m unittest discover -s tests -v
 示例 COM11 仅为演示值，validate 不打开串口，run 会打开指定串口。
 Linux 使用自己的设备路径；源码不限制 GUI 平台，发布包需要分平台构建验证。
 
-设计禁止机械搬运原脚本。旧工具在迁移期间继续保留，新 CLI 验收完成后统一入口，不长期双线维护。
+软件独立安装、运行和验证。CLI 与 GUI 共用通用业务模块，协议能力优先复用成熟库。
 
 ## 运行结果
 

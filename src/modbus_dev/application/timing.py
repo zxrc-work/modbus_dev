@@ -1,4 +1,4 @@
-"""Absolute-slot policy, extracted from the LFOM fixed-cadence sender.
+"""Absolute-slot scheduling policy for fixed-cadence communication.
 
 No sleep, I/O, logging, GUI or implicit clock. Adapters own cancellable waiting.
 """

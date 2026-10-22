@@ -48,4 +48,4 @@ python tools/verify_virtual_serial.py --pty --output results/kylin-new
 ```
 
 代码修正：初次打开串口后再建立调度基准，避免初始化耗时侵占首个槽位；新增周期级统计避免读回流量扭曲周期指标。
-未验证：物理 RS485/设备、长期运行、Python 3.10 实际运行、GUI 与通信并行压力、DYN/从站/LFOM。
+未验证：物理 RS485/设备、长期运行、Python 3.10 实际运行、GUI 与通信并行压力、DYN/从站。

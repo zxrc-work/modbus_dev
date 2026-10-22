@@ -1,1 +1,1 @@
-"""Data sources do not send requests or know about LFOM."""
+"""Data sources are independent of communication and application-specific integrations."""
