@@ -612,7 +612,7 @@ def create_application():
     existing = QApplication.instance()
     if existing is not None:
         return existing
-    # Match the DCS workbench's pixel-aligned Windows text rendering. Respect an
+    # Use pixel-aligned Windows text rendering. Respect an
     # explicit platform (e.g. offscreen) and never disable Qt's high-DPI scaling.
     if sys.platform == "win32":
         os.environ.setdefault("QT_QPA_PLATFORM", "windows:fontengine=gdi")
