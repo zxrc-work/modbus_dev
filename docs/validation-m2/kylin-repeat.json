@@ -1,0 +1,389 @@
+{
+  "platform": "linux",
+  "python": "3.12.14 (main, Sep  2 2026, 23:27:36) [GCC 15.3.0]",
+  "cases": [
+    {
+      "name": "100ms",
+      "result": {
+        "state": "stopped",
+        "stop_reason": "duration_complete",
+        "error": null,
+        "exit_code": 0,
+        "elapsed_s": 10.041482546000225,
+        "counters": {
+          "port_opens": 1,
+          "write_attempts": 100,
+          "ack": 100
+        },
+        "ack_correlation_uncertain": false,
+        "metrics": {
+          "send_interval_ms": {
+            "count": 99,
+            "mean": 100.01049487878718,
+            "min": 96.14303699981974,
+            "max": 103.61479299990606,
+            "stddev": 1.290043535227381,
+            "p95_upper_ms": 102.4,
+            "p99_upper_ms": 103.7
+          },
+          "send_lateness_ms": {
+            "count": 100,
+            "mean": 1.4321473998461443,
+            "min": 0.5035250005676062,
+            "max": 5.521727999621362,
+            "stddev": 1.140600241846301,
+            "p95_upper_ms": 4.1,
+            "p99_upper_ms": 4.7
+          },
+          "response_ms": {
+            "count": 100,
+            "mean": 37.67725302997859,
+            "min": 35.73322499960341,
+            "max": 54.8196800000369,
+            "stddev": 2.7619249384419287,
+            "p95_upper_ms": 41.3,
+            "p99_upper_ms": 48.6
+          },
+          "cycle_interval_ms": {
+            "count": 99,
+            "mean": 100.01049487878718,
+            "min": 96.14303699981974,
+            "max": 103.61479299990606,
+            "stddev": 1.290043535227381,
+            "p95_upper_ms": 102.4,
+            "p99_upper_ms": 103.7
+          },
+          "cycle_lateness_ms": {
+            "count": 100,
+            "mean": 1.4321473998461443,
+            "min": 0.5035250005676062,
+            "max": 5.521727999621362,
+            "stddev": 1.140600241846301,
+            "p95_upper_ms": 4.1,
+            "p99_upper_ms": 4.7
+          }
+        }
+      }
+    },
+    {
+      "name": "100ms-four-points",
+      "result": {
+        "state": "stopped",
+        "stop_reason": "duration_complete",
+        "error": null,
+        "exit_code": 0,
+        "elapsed_s": 3.0410336100003406,
+        "counters": {
+          "port_opens": 1,
+          "write_attempts": 30,
+          "ack": 30
+        },
+        "ack_correlation_uncertain": false,
+        "metrics": {
+          "send_interval_ms": {
+            "count": 29,
+            "mean": 99.99785855174635,
+            "min": 96.65758799928881,
+            "max": 103.09062300075311,
+            "stddev": 1.076308397459599,
+            "p95_upper_ms": 101.7,
+            "p99_upper_ms": 103.1
+          },
+          "send_lateness_ms": {
+            "count": 30,
+            "mean": 0.8829916998668826,
+            "min": 0.4231289995004772,
+            "max": 3.865972999847145,
+            "stddev": 0.7546724354798156,
+            "p95_upper_ms": 3.2,
+            "p99_upper_ms": 3.9
+          },
+          "response_ms": {
+            "count": 30,
+            "mean": 36.96009426663902,
+            "min": 35.86527399966144,
+            "max": 42.48607699992135,
+            "stddev": 1.477234124765668,
+            "p95_upper_ms": 41.0,
+            "p99_upper_ms": 42.5
+          },
+          "cycle_interval_ms": {
+            "count": 29,
+            "mean": 99.99785855174635,
+            "min": 96.65758799928881,
+            "max": 103.09062300075311,
+            "stddev": 1.076308397459599,
+            "p95_upper_ms": 101.7,
+            "p99_upper_ms": 103.1
+          },
+          "cycle_lateness_ms": {
+            "count": 30,
+            "mean": 0.8829916998668826,
+            "min": 0.4231289995004772,
+            "max": 3.865972999847145,
+            "stddev": 0.7546724354798156,
+            "p95_upper_ms": 3.2,
+            "p99_upper_ms": 3.9
+          }
+        }
+      }
+    },
+    {
+      "name": "200ms-sine",
+      "result": {
+        "state": "stopped",
+        "stop_reason": "duration_complete",
+        "error": null,
+        "exit_code": 0,
+        "elapsed_s": 2.9464131690001523,
+        "counters": {
+          "port_opens": 1,
+          "write_attempts": 15,
+          "ack": 15
+        },
+        "ack_correlation_uncertain": false,
+        "metrics": {
+          "send_interval_ms": {
+            "count": 14,
+            "mean": 200.11585214284165,
+            "min": 198.23642299979838,
+            "max": 201.73572000021522,
+            "stddev": 0.8064473370209239,
+            "p95_upper_ms": 201.8,
+            "p99_upper_ms": 201.8
+          },
+          "send_lateness_ms": {
+            "count": 15,
+            "mean": 0.8366285994876914,
+            "min": 0.34638199940673076,
+            "max": 2.344820999496733,
+            "stddev": 0.5713190260864766,
+            "p95_upper_ms": 2.4,
+            "p99_upper_ms": 2.4
+          },
+          "response_ms": {
+            "count": 15,
+            "mean": 37.28326246679596,
+            "min": 35.7417240002178,
+            "max": 42.369937999865215,
+            "stddev": 1.850991009530908,
+            "p95_upper_ms": 42.4,
+            "p99_upper_ms": 42.4
+          },
+          "cycle_interval_ms": {
+            "count": 14,
+            "mean": 200.11585214284165,
+            "min": 198.23642299979838,
+            "max": 201.73572000021522,
+            "stddev": 0.8064473370209239,
+            "p95_upper_ms": 201.8,
+            "p99_upper_ms": 201.8
+          },
+          "cycle_lateness_ms": {
+            "count": 15,
+            "mean": 0.8366285994876914,
+            "min": 0.34638199940673076,
+            "max": 2.344820999496733,
+            "stddev": 0.5713190260864766,
+            "p95_upper_ms": 2.4,
+            "p99_upper_ms": 2.4
+          }
+        }
+      }
+    },
+    {
+      "name": "readback",
+      "result": {
+        "state": "stopped",
+        "stop_reason": "duration_complete",
+        "error": null,
+        "exit_code": 0,
+        "elapsed_s": 3.022007286000189,
+        "counters": {
+          "port_opens": 1,
+          "write_attempts": 60,
+          "ack": 30,
+          "read": 30
+        },
+        "ack_correlation_uncertain": false,
+        "metrics": {
+          "send_interval_ms": {
+            "count": 59,
+            "mean": 49.33943847457051,
+            "min": 9.425289999853703,
+            "max": 91.45287799947255,
+            "stddev": 38.84188465404325,
+            "p95_upper_ms": 91.2,
+            "p99_upper_ms": 91.5
+          },
+          "send_lateness_ms": {
+            "count": 60,
+            "mean": 6.506397032975049,
+            "min": 0.3457450002315454,
+            "max": 21.3781080001354,
+            "stddev": 5.953350410163691,
+            "p95_upper_ms": 15.8,
+            "p99_upper_ms": 21.4
+          },
+          "response_ms": {
+            "count": 60,
+            "mean": 6.901487750049759,
+            "min": 5.560401999900932,
+            "max": 19.148968000081368,
+            "stddev": 2.494441665512752,
+            "p95_upper_ms": 12.9,
+            "p99_upper_ms": 19.2
+          },
+          "cycle_interval_ms": {
+            "count": 29,
+            "mean": 99.99765303448305,
+            "min": 98.77475400026015,
+            "max": 101.52120299972012,
+            "stddev": 0.5628193110702752,
+            "p95_upper_ms": 101.2,
+            "p99_upper_ms": 101.6
+          },
+          "cycle_lateness_ms": {
+            "count": 30,
+            "mean": 0.8833384662163251,
+            "min": 0.3457450002315454,
+            "max": 2.353427998968982,
+            "stddev": 0.4425114685693404,
+            "p95_upper_ms": 2.0,
+            "p99_upper_ms": 2.4
+          }
+        }
+      }
+    },
+    {
+      "name": "faults",
+      "result": {
+        "state": "stopped",
+        "stop_reason": "duration_complete",
+        "error": null,
+        "exit_code": 0,
+        "elapsed_s": 3.040465874999427,
+        "counters": {
+          "port_opens": 1,
+          "write_attempts": 30,
+          "timeout": 1,
+          "bad_reply": 1,
+          "exception_ambiguous": 1,
+          "ack_ambiguous": 27
+        },
+        "ack_correlation_uncertain": true,
+        "metrics": {
+          "send_interval_ms": {
+            "count": 29,
+            "mean": 99.99016413790929,
+            "min": 92.6188399998864,
+            "max": 109.57985000004555,
+            "stddev": 2.3885741001915664,
+            "p95_upper_ms": 101.7,
+            "p99_upper_ms": 109.6
+          },
+          "send_lateness_ms": {
+            "count": 30,
+            "mean": 1.161957066415198,
+            "min": 0.34292100008315174,
+            "max": 10.21819899960974,
+            "stddev": 1.780765869200185,
+            "p95_upper_ms": 2.9,
+            "p99_upper_ms": 10.3
+          },
+          "response_ms": {
+            "count": 28,
+            "mean": 37.52418582143947,
+            "min": 35.62742000030994,
+            "max": 60.138640999866766,
+            "stddev": 4.52807170700417,
+            "p95_upper_ms": 40.0,
+            "p99_upper_ms": 60.2
+          },
+          "cycle_interval_ms": {
+            "count": 29,
+            "mean": 99.99016413790929,
+            "min": 92.6188399998864,
+            "max": 109.57985000004555,
+            "stddev": 2.3885741001915664,
+            "p95_upper_ms": 101.7,
+            "p99_upper_ms": 109.6
+          },
+          "cycle_lateness_ms": {
+            "count": 30,
+            "mean": 1.161957066415198,
+            "min": 0.34292100008315174,
+            "max": 10.21819899960974,
+            "stddev": 1.780765869200185,
+            "p95_upper_ms": 2.9,
+            "p99_upper_ms": 10.3
+          }
+        }
+      }
+    },
+    {
+      "name": "strict-failure",
+      "result": {
+        "state": "failed",
+        "stop_reason": "failed",
+        "error": "RuntimeError: Strict replay transaction failed: timeout; ambiguous=True",
+        "exit_code": 1,
+        "elapsed_s": 0.18245555300018168,
+        "counters": {
+          "port_opens": 1,
+          "write_attempts": 1,
+          "timeout": 1
+        },
+        "ack_correlation_uncertain": true,
+        "metrics": {
+          "send_interval_ms": {
+            "count": 0,
+            "mean": null,
+            "min": null,
+            "max": null,
+            "stddev": null,
+            "p95_upper_ms": null,
+            "p99_upper_ms": null
+          },
+          "send_lateness_ms": {
+            "count": 1,
+            "mean": 0.5984759991406463,
+            "min": 0.5984759991406463,
+            "max": 0.5984759991406463,
+            "stddev": 0.0,
+            "p95_upper_ms": 0.6,
+            "p99_upper_ms": 0.6
+          },
+          "response_ms": {
+            "count": 0,
+            "mean": null,
+            "min": null,
+            "max": null,
+            "stddev": null,
+            "p95_upper_ms": null,
+            "p99_upper_ms": null
+          },
+          "cycle_interval_ms": {
+            "count": 0,
+            "mean": null,
+            "min": null,
+            "max": null,
+            "stddev": null,
+            "p95_upper_ms": null,
+            "p99_upper_ms": null
+          },
+          "cycle_lateness_ms": {
+            "count": 1,
+            "mean": 0.5984759991406463,
+            "min": 0.5984759991406463,
+            "max": 0.5984759991406463,
+            "stddev": 0.0,
+            "p95_upper_ms": 0.6,
+            "p99_upper_ms": 0.6
+          }
+        }
+      }
+    }
+  ],
+  "status": "passed"
+}

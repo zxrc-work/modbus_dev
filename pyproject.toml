@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "modbus-dev"
+version = "0.1.0"
+description = "Modbus communication test and replay workbench"
+requires-python = ">=3.10"
+dependencies = ["pymodbus==3.11.4", "pyserial==3.5"]
+
+[project.scripts]
+modbus-dev = "modbus_dev.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

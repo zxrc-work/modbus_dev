@@ -1,0 +1,7 @@
+{
+  "platform": "linux",
+  "python": "3.12.14 (main, Sep  2 2026, 23:27:36) [GCC 15.3.0]",
+  "cases": [],
+  "status": "failed",
+  "error": "AssertionError({'state': 'stopped', 'stop_reason': 'duration_complete', 'error': None, 'exit_code': 0, 'elapsed_s': 10.040662317999704, 'counters': {'port_opens': 1, 'write_attempts': 100, 'ack': 64, 'bad_reply': 1, 'ack_ambiguous': 35}, 'ack_correlation_uncertain': True, 'metrics': {'send_interval_ms': {'count': 99, 'mean': 99.99414693939258, 'min': 82.44709700011299, 'max': 117.78890599998704, 'stddev': 2.7919854833606235, 'p95_upper_ms': 101.1, 'p99_upper_ms': 117.8}, 'send_lateness_ms': {'count': 100, 'mean': 1.0444547694896753, 'min': 0.2715189993978129, 'max': 18.884329999309557, 'stddev': 1.9824135383889332, 'p95_upper_ms': 1.6, 'p99_upper_ms': 7.4}, 'response_ms': {'count': 99, 'mean': 36.892567606095454, 'min': 35.78774200013868, 'max': 54.80649499986612, 'stddev': 2.317598567994942, 'p95_upper_ms': 39.2, 'p99_upper_ms': 54.9}, 'cycle_interval_ms': {'count': 99, 'mean': 99.99414693939258, 'min': 82.44709700011299, 'max': 117.78890599998704, 'stddev': 2.7919854833606235, 'p95_upper_ms': 101.1, 'p99_upper_ms': 117.8}, 'cycle_lateness_ms': {'count': 100, 'mean': 1.0444547694896753, 'min': 0.2715189993978129, 'max': 18.884329999309557, 'stddev': 1.9824135383889332, 'p95_upper_ms': 1.6, 'p99_upper_ms': 7.4}}})"
+}
