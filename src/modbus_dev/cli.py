@@ -1,4 +1,4 @@
-"""Unified configuration, port discovery and single-session RTU master CLI."""
+"""Unified configuration, port discovery and single-session communication CLI."""
 import argparse
 import json
 import sys
@@ -12,12 +12,12 @@ from .domain.wire import minimum_cycle_ms
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog="modbus-dev", description="Modbus Dev RTU master and configuration tools")
+    parser = argparse.ArgumentParser(prog="modbus-dev", description="Modbus Dev communication tools")
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="command", required=True)
     validate = commands.add_parser("validate", help="validate task configuration without opening a device")
     validate.add_argument("config")
-    run = commands.add_parser("run", help="run one RTU master session (constant/sine)")
+    run = commands.add_parser("run", help="run one RTU master or read-only RTU/TCP slave session (constant/sine)")
     run.add_argument("config")
     run.add_argument("--output", required=True, help="new result directory; existing directories are refused")
     commands.add_parser("ports", help="list serial ports without opening them")

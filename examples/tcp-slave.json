@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "mode": "tcp-slave",
+  "host": "127.0.0.1",
+  "port": 1502,
+  "unit": 1,
+  "addresses": [0, 2, 4, 6],
+  "byte_order": "B1234",
+  "period_ms": 100,
+  "duration_s": 0,
+  "source": {"kind": "sine", "value": 10, "amplitude": 1, "frequency_hz": 0.5}
+}

@@ -4,7 +4,7 @@ import math
 class SyntheticSource:
     def __init__(self, config):
         if config.source.kind not in ("constant", "sine"):
-            raise ValueError("DYN execution belongs to M3; no device has been opened")
+            raise ValueError("Offline sources are deferred until after GUI; no device has been opened")
         self.config = config
 
     def sample(self, slot):

@@ -336,8 +336,7 @@ class SessionTests(unittest.TestCase):
 
     def test_unsupported_run_modes_rejected_before_output(self):
         with tempfile.TemporaryDirectory() as root:
-            for settings in (config(mode="tcp-slave"),
-                             config(source=dict(kind="dyn", path="missing.dyn", channels=["P"]))):
+            for settings in (config(source=dict(kind="dyn", path="missing.dyn", channels=["P"])),):
                 with self.assertRaises(ValueError):
                     SessionRunner(settings, Path(root) / "run")
             self.assertFalse((Path(root) / "run").exists())

@@ -10,7 +10,8 @@
 
 RTU 主站 FC16 发数、常量/正弦源、FC03/04 读回验证、连续/严格策略、端口枚举、
 绝对周期调度、停止与重连、原始报文及有界异步日志。CLI 和未来 GUI 共用 SessionRunner。
-**DYN、RTU/TCP 从站、GUI 和打包尚未实现。validate 只校验配置，不代表功能已可运行。**
+RTU/TCP 只读从站支持常量/正弦、FC03/04、独立数据时钟和完整 float32 快照；其他请求功能码被拒绝。
+**GUI 和打包尚未实现。DYN/CSV 离线输入推迟至 GUI 之后。validate 只校验配置，不代表功能已可运行。**
 
 ```sh
 python -m pip install -e .
@@ -18,6 +19,10 @@ modbus-dev validate examples/rtu-master.json
 modbus-dev ports
 # 先修改示例中的端口和设备参数；run 会实际写寄存器。输出目录必须不存在。
 modbus-dev run examples/rtu-master.json --output results/my-first-run
+# TCP 只读从站默认监听 127.0.0.1:1502；Ctrl+C 停止。输出目录必须不存在。
+modbus-dev run examples/tcp-slave.json --output results/tcp-first-run
+# RTU 只读从站：先修改示例串口；与主站使用不同端口或不同设备。
+modbus-dev run examples/rtu-slave.json --output results/rtu-slave-first-run
 python -m unittest discover -s tests -v
 ```
 
@@ -28,9 +33,23 @@ Linux 使用自己的设备路径；源码不限制 GUI 平台，发布包需要
 
 软件独立安装、运行和验证。CLI 与 GUI 共用通用业务模块，协议能力优先复用成熟库。
 
+实施顺序：TCP 只读从站 → RTU 只读从站 → GUI → DYN/CSV 离线数据。
+TCP 示例中 unit=1，FC03/04 共用地址 0、2、4、6 的四个 float32 点，B1234 排列。
+只允许完整点读取（例如 address=0/count=8）；半点、未映射地址或跨空洞返回异常 02。
+数据按 period_ms 推进，与客户端轮询频率无关；duration_s=0 持续运行。
+TCP 会话摘要使用 source_updates、slave_request、rx、tx 等计数；rx/tx 是驱动调用记录数，不是报文数。
+
+RTU 从站使用相同点表和只读规则；广播及其他站号静默忽略。CRC 错误、短帧、超过 256 字节的帧整帧丢弃，
+等待下一次静默后恢复，不从噪声中扫描嵌入请求。接收间隔依据驱动交付时刻，不能视为物理总线时间。
+仅面向单主站请求/应答测试；本轮未验证多点 RS485、物理设备和虚拟 COM/PTY。
+持续策略下串口打开失败、读写异常或短写至少间隔 1 秒重连；严格策略遇到这些故障停止。
+重连不重置数据时钟；无轮询时数据也继续更新。timeout_ms 限制从站单次写等待（另有 50ms 上限），
+不是主站等待回复的超时；接收等待最多 10ms，并受下一数据更新时间约束。
+
 ## 运行结果
 
 调度容差默认是周期的 10%，配置字段 `schedule_tolerance_percent`，允许 0～100 的有限数值。
+以下调度容差和 ACK 关联说明用于 RTU 主站；从站按独立数据时钟更新快照。
 例如 `"period_ms": 100, "schedule_tolerance_percent": 10` 表示每周期首次发送相对计划时刻可晚 10ms（含边界）。
 容差内正常且仍计入时间统计；超出时产生 `schedule_late` WARNING 和计数，不因这条告警停止任务。
 比较的是实际写调用开始时刻，包含串口静默等待；同周期的后续分组和读回不重复判定。

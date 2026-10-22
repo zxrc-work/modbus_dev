@@ -1,4 +1,4 @@
-"""Single-session RTU master use case, shared by CLI and a future GUI worker."""
+"""Single-session entry point, shared by CLI and a future GUI worker."""
 from collections import Counter
 import os
 from pathlib import Path
@@ -19,10 +19,8 @@ _ACTIVE_SESSION = threading.Lock()
 
 def check_capabilities(config):
     config.validate()
-    if config.mode != "rtu-master":
-        raise ValueError("This build runs RTU master only; slave engines are planned for M3")
     if config.source.kind not in ("constant", "sine"):
-        raise ValueError("This build runs constant/sine sources only; DYN is planned for M3")
+        raise ValueError("This build runs constant/sine sources only; offline sources are deferred until after GUI")
     if config.serial.rts_toggle and os.name != "nt":
         raise ValueError("RTS toggle currently uses the Windows driver")
 
@@ -102,6 +100,9 @@ class SessionRunner:
         return reply
 
     def run(self):
+        if self.config.mode in ("tcp-slave", "rtu-slave"):
+            from .slave import run_slave
+            return run_slave(self)
         if self._used or not _ACTIVE_SESSION.acquire(blocking=False):
             raise RuntimeError("Only one session can run in this process; use a new runner after completion")
         self._used = True
