@@ -7,7 +7,7 @@
 | 目标 | 系统 / CPU | 当前验收安排 |
 |---|---|---|
 | `macos-arm64` | macOS / Apple Silicon | 本机实际构建及解压验收 |
-| `windows-x64` | Windows / x64 | 构建适配，交由 Windows 电脑实测 |
+| `windows-x64` | Windows / x64 | 已在 Windows 11 原生构建及解压验收 |
 | `kylin-x86_64` | 麒麟 / x86_64 | 构建适配，交由麒麟电脑实测 |
 
 不能在 Mac 上生成 Windows 或麒麟可运行包，不把跨平台 spec 单元测试当实包通过。
@@ -62,7 +62,7 @@ python3.12 -m venv .venv-build-macos-arm64
 .venv-build-macos-arm64/bin/python build_release.py --target macos-arm64
 ```
 
-### Windows x64（待原生实测）
+### Windows x64（已原生实测）
 
 ```powershell
 py -3.12 -m venv .venv-build-windows-x64
@@ -72,6 +72,22 @@ py -3.12 -m venv .venv-build-windows-x64
 
 构建器会执行实际 GUI 原生 DPI 检查，但 Windows 虚拟/物理 COM 互操作仍需补充，
 验收回执对此明确保留待验收状态。现场串口必须明确指定，不自动选择已有设备。
+
+Windows 11 / Python 3.12.10 已完成锁定依赖构建、中文/空格路径解压和实际双入口验收，
+实际 GUI 另测 100%、125%、150%、175%、200% 缩放。结果及 COM 补测见
+[Windows 实包验收记录](../logs/validation/packaging-windows-20261023.md)。
+
+需要验收已解压包的通信时，可显式指定其 CLI；被测进程会清除开发 Python/Qt 环境和 PATH。
+下列 COM11/COM12 仅用于本轮用户指定的 HHD 虚拟串口对，其他电脑必须明确替换为自己的虚拟测试端口：
+
+```powershell
+$env:PYTHONPATH = "$PWD/src"
+$cli = '已解压目录/ModbusDev/modbus-dev.exe'
+.venv-build-windows-x64\Scripts\python.exe tools/verify_backend_communications.py --cli $cli --master COM11 --slave COM12 --output results/packaged-com-new --commit YOUR_COMMIT --seconds 20
+.venv-build-windows-x64\Scripts\python.exe tools/verify_backend_communications.py --cli $cli --master COM11 --slave COM12 --output results/packaged-contention-new --commit YOUR_COMMIT --contention-only
+```
+
+`--cli` 不与 `--gui-only` 混用；后者通过源码 GUI 驱动工作进程，不能作为发布版 GUI 验收。
 
 ### 麒麟 x86_64（待原生实测）
 

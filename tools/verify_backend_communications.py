@@ -28,7 +28,7 @@ def require(condition, message):
 
 
 class Backend:
-    def __init__(self, folder, config, entry="worker"):
+    def __init__(self, folder, config, entry="worker", cli=None):
         self.folder, self.entry = folder, entry
         folder.mkdir(parents=True)
         save(folder / "input.json", config)
@@ -37,13 +37,23 @@ class Backend:
         command = ([sys.executable, str(Path(__file__).with_name("verify_gui_session.py")),
                     str(folder / "input.json"), "--output", str(folder / "run")]
                    if entry == "gui" else
-                   [sys.executable, "-m", "modbus_dev", entry, str(folder / "input.json"),
+                   ([str(cli)] if cli else [sys.executable, "-m", "modbus_dev"]) +
+                   [entry, str(folder / "input.json"),
                     "--output", str(folder / "run")])
+        environment = dict(os.environ, PYTHONIOENCODING="utf-8")
+        if cli:
+            for name in list(environment):
+                if name.startswith(("PYTHON", "QT_", "QML")) or name in {
+                        "VIRTUAL_ENV", "DYLD_LIBRARY_PATH", "LD_LIBRARY_PATH"}:
+                    environment.pop(name, None)
+            system = Path(os.environ.get("SystemRoot", r"C:\Windows"))
+            environment["PATH"] = (os.pathsep.join((str(system / "System32"), str(system)))
+                                   if os.name == "nt" else "/usr/bin:/bin:/usr/sbin:/sbin")
         self.process = subprocess.Popen(
             command, stdin=subprocess.PIPE,
             stdout=self.stdout, stderr=self.stderr,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-            env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+            env=environment)
         self.result = None
         self.stop_latency_ms = None
 
@@ -288,6 +298,7 @@ class Matrix:
         self.root.mkdir(parents=True, exist_ok=False)
         self.report = dict(platform=sys.platform, python=sys.version, tested_commit=args.commit,
                            dependencies={x: importlib.metadata.version(x) for x in ("pymodbus", "pyserial")},
+                           backend_executable=str(args.cli) if args.cli else None,
                            cases=[], status="running")
 
     def serial(self):
@@ -323,7 +334,7 @@ class Matrix:
         else:
             config.update(host="127.0.0.1", port=reserve_port())
         try:
-            backend = Backend(folder / "backend", config, entry)
+            backend = Backend(folder / "backend", config, entry, cli=self.args.cli)
             backend.started()
             wire = SerialWire(peer, trace) if peer else TcpWire(config["host"], config["port"], trace)
             checks = check_protocol(wire, trace)
@@ -348,7 +359,7 @@ class Matrix:
         else:
             config.update(host="127.0.0.1", port=reserve_port())
         try:
-            backend = Backend(folder / "backend", config)
+            backend = Backend(folder / "backend", config, cli=self.args.cli)
             backend.started()
             wire = SerialWire(peer, trace) if peer else TcpWire(config["host"], config["port"], trace)
             samples = []
@@ -415,7 +426,7 @@ class Matrix:
             config = dict(mode="rtu-master", serial=dict(port=port, baud=9600),
                           addresses=[0, 2, 4, 6], source=dict(kind="sine", value=10, amplitude=1, frequency_hz=.5),
                           duration_s=self.args.seconds, period_ms=100, timeout_ms=80, readback_every=1)
-            backend = Backend(folder / "master", config, entry)
+            backend = Backend(folder / "master", config, entry, cli=self.args.cli)
             result = backend.finish(timeout=self.args.seconds+15)
             require(not errors, str(errors))
             counters = result["counters"]
@@ -439,7 +450,7 @@ class Matrix:
         try:
             backend = Backend(folder / "slave", dict(mode="rtu-slave", duration_s=0,
                 serial=dict(port=port, baud=9600), addresses=[0, 2, 4, 6],
-                source=dict(kind="constant", value=12.5)))
+                source=dict(kind="constant", value=12.5)), cli=self.args.cli)
             backend.started()
             time.sleep(1.2)
             holder.close()
@@ -498,11 +509,18 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--commit", required=True)
     parser.add_argument("--seconds", type=int, default=20)
+    parser.add_argument("--cli", type=Path, help="test this extracted release CLI instead of the source module")
     parser.add_argument("--gui-only", action="store_true", help="optional offscreen Qt + actual serial peer")
     parser.add_argument("--contention-only", action="store_true", help="actual exclusive-open failure and recovery")
     args = parser.parse_args()
     if args.gui_only and args.contention_only:
         parser.error("Choose only one supplemental matrix")
+    if args.cli:
+        args.cli = args.cli.resolve()
+        if not args.cli.is_file():
+            parser.error("--cli must name an existing release executable")
+        if args.gui_only:
+            parser.error("--gui-only uses the source GUI and cannot be combined with --cli")
     if args.pty:
         if os.name != "posix" or args.master or args.slave:
             parser.error("--pty requires POSIX and no existing serial ports")

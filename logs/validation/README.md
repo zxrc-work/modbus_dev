@@ -4,6 +4,7 @@
 
 ## 记录索引
 
+- [2026-10-23 Windows x64 Cython 便携包实包验收](packaging-windows-20261023.md)
 - [2026-10-23 macOS arm64 Cython 便携包实包验收](packaging-macos-20261023.md)
 
 - [2026-10-23 Windows / 麒麟实际通信验证](validation-20261023.md)
