@@ -49,9 +49,11 @@ class TrendPlot(QWidget):
         super().hideEvent(event)
 
     def tick(self):
-        # 只在可见页抽取最新快照；缺失区间由趋势模型产生断点。
+        # 数据到达时已入缓冲；此处只清理时间窗口并按 2Hz 重绘。
         if self.isVisible() and self.owner.running:
-            self.owner.history.sample(self.owner.snapshot, self.owner.clock())
+            snapshot = self.owner.snapshot
+            self.owner.history.advance(self.owner.clock(), snapshot.get("state", "idle"),
+                                       snapshot.get("stale_after_s", 1.))
             self.update()
 
     def paintEvent(self, event):
@@ -120,7 +122,7 @@ class RealtimePanel(QWidget):
         heading.addWidget(label("实时数值", "section"))
         heading.addStretch()
         refresh_note = label(f"界面刷新：数值 {VALUE_REFRESH_HZ}Hz · 曲线 {CURVE_REFRESH_HZ}Hz · 最近 {CURVE_WINDOW_S} 秒", "caption")
-        refresh_note.setToolTip("界面按固定频率抽取最新通信值；实际数据更新和收发频率由周期、对端轮询与链路情况决定。")
+        refresh_note.setToolTip("数值表显示最新值；曲线缓存实际通信点，刷新频率不限制通信采样点数。")
         heading.addWidget(refresh_note)
         layout.addLayout(heading)
         self.table = QTableWidget(0, 6)
@@ -146,13 +148,21 @@ class RealtimePanel(QWidget):
         curve_layout.addLayout(self.legend)
         self.plot = TrendPlot(self)
         curve_layout.addWidget(self.plot, 1)
-        note = label("TX 实线：已提交驱动 · RX 虚线：已解析数值 · 曲线抽取最新值，不保留全部通信采样点", "caption")
-        note.setWordWrap(True)
-        curve_layout.addWidget(note)
+        self.curve_note = label("", "caption")
+        self.curve_note.setWordWrap(True)
+        curve_layout.addWidget(self.curve_note)
+        self.update_curve_note()
+
+    def update_curve_note(self):
+        text = f"TX 实线：已提交驱动 · RX 虚线：已解析数值 · 缓存实际通信点，{CURVE_REFRESH_HZ}Hz 重绘"
+        if self.history.dropped:
+            text += f" · 缓冲丢弃 {self.history.dropped} 条"
+        self.curve_note.setText(text)
 
     def configure(self, config):
         self.snapshot, self.pending = {}, None
         self.history.clear()
+        self.update_curve_note()
         self.table.setRowCount(0)
         for checkbox in self.selectors.values():
             self.legend.removeWidget(checkbox)
@@ -193,7 +203,9 @@ class RealtimePanel(QWidget):
         return key in self.selectors and self.selectors[key].isEnabled() and self.selectors[key].isChecked()
 
     def ingest(self, snapshot):
-        # 状态管道只保存最后一份，不将每个报文推入界面队列。
+        # 数值表可以覆盖最新快照；曲线必须先接收其中的所有通信点。
+        self.history.sample(snapshot, self.clock())
+        self.update_curve_note()
         self.pending = snapshot
         self.set_state(snapshot.get("state", "idle"))
 
@@ -207,6 +219,8 @@ class RealtimePanel(QWidget):
         else:
             self.value_timer.stop()
             self.refresh_values()
+            self.history.advance(self.clock(), state, self.snapshot.get("stale_after_s", 1.))
+            self.plot.update()
         self.plot.sync_timer()
 
     def refresh_values(self):

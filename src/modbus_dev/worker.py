@@ -34,25 +34,42 @@ class EventPreview:
             return events, self.dropped
 
 
+def live_packets(payload, runner):
+    """仅在即将写管道时取出通信点，合并状态包不能丢掉尚未发送的数据。"""
+    if runner is None:
+        yield dict(payload, live={})
+        return
+    while True:
+        live = runner.live.snapshot(runner.control.now(), runner.state, drain=True)
+        if payload["type"] == "result" and live["samples_pending"]:
+            # 最终结果之前把剩余点分包送完，不能让单条 JSON 无限变大。
+            yield dict(schema_version=1, type="status", state=runner.state,
+                       counters=dict(runner.counters), events=[], live=live)
+        else:
+            yield dict(payload, live=live)
+            return
+
+
 def main(config_path, output):
     stop = threading.Event()
     preview = EventPreview()
     outgoing = queue.Queue(maxsize=2)
     pipe_failed = threading.Event()
     output_fd = sys.stdout.fileno()
+    runner = None
 
     def writer():
         try:
             while True:
                 payload = outgoing.get()
-                data = (json.dumps(payload, ensure_ascii=True, allow_nan=False) + "\n").encode("ascii")
-                # Avoid Python's buffered stdout lock: a daemon blocked on a full
-                # pipe must not deadlock interpreter shutdown during final flush.
-                while data:
-                    count = os.write(output_fd, data)
-                    if not count:
-                        raise OSError("Worker output pipe closed")
-                    data = data[count:]
+                for packet in live_packets(payload, runner):
+                    data = (json.dumps(packet, ensure_ascii=True, allow_nan=False) + "\n").encode("ascii")
+                    # Avoid Python's buffered stdout lock while a UI stops reading.
+                    while data:
+                        count = os.write(output_fd, data)
+                        if not count:
+                            raise OSError("Worker output pipe closed")
+                        data = data[count:]
                 if payload["type"] == "result":
                     return
         except (OSError, ValueError):
@@ -115,16 +132,14 @@ def main(config_path, output):
             events, dropped = preview.drain()
             recording = runner.journal.snapshot() if runner.journal else {}
             publish(dict(type="status", state=runner.state, counters=dict(runner.counters),
-                         recording=recording, events=events, preview_dropped=dropped,
-                         live=runner.live.snapshot(runner.control.now(), runner.state)))
+                         recording=recording, events=events, preview_dropped=dropped))
             task.join(1 / VALUE_REFRESH_HZ)
         task.join()
     except Exception as exc:
         traceback.print_exc(file=sys.stderr)
         result.update(state="failed", exit_code=2, error=str(exc), stop_reason="configuration_error")
     events, dropped = preview.drain()
-    publish(dict(type="result", result=result, events=events, preview_dropped=dropped,
-                 live=runner.live.snapshot(runner.control.now(), runner.state) if 'runner' in locals() else {}))
+    publish(dict(type="result", result=result, events=events, preview_dropped=dropped))
     sender.join(2)
     # A broken or blocked output channel is never reported as a successful worker.
     return 1 if sender.is_alive() or pipe_failed.is_set() else result["exit_code"]

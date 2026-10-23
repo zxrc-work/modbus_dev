@@ -23,12 +23,20 @@ window.show()
 window.monitor_tabs.setCurrentIndex(1)
 app.processEvents()
 panel = window.live_panel
+sequence = 0
+draws = []
+panel.plot.timer.timeout.connect(lambda: draws.append(time.monotonic()))
 def publish():
+    global sequence
     now = time.monotonic()
+    samples = []
+    for at in (now - .1, now):
+        sequence += 1
+        samples.append([sequence, 'input:0:tx', at, at % 1, 'submitted'])
     row = dict(key='input:0:tx', point=0, name='压力', area='input', address=0,
         direction='tx', value=now % 1, registers=[0, 0], function=4,
         quality='submitted', sampled_s=now)
-    panel.ingest(dict(state='running', sampled_s=now, stale_after_s=1., rows=[row]))
+    panel.ingest(dict(state='running', sampled_s=now, stale_after_s=1., rows=[row], samples=samples))
 publish()
 updates = QTimer()
 updates.setInterval(200)
@@ -41,7 +49,16 @@ updates.stop()
 assert panel.table.rowCount() == 1
 assert panel.selected('input:0:tx')
 points = panel.history.series.get('input:0:tx', ())
-assert sum(value is not None for _, value in points) >= 3, list(points)
+assert sum(value is not None for _, value in points) == sequence, list(points)
+assert 3 <= len(draws) <= 6, draws
+assert sequence >= 18, sequence
+# 隐藏页只停止绘制，状态批次仍完整入缓冲，数值快照覆盖也不能丢点。
+window.monitor_tabs.setCurrentIndex(0)
+app.processEvents()
+assert not panel.plot.timer.isActive()
+publish()
+publish()
+assert sum(value is not None for _, value in panel.history.series['input:0:tx']) == sequence
 window.close()
 '''
         environment = dict(os.environ, QT_QPA_PLATFORM="offscreen")
