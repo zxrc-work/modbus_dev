@@ -9,6 +9,46 @@ import unittest
 
 @unittest.skipUnless(importlib.util.find_spec("PySide6"), "需要可选 Qt 依赖")
 class LiveGuiTests(unittest.TestCase):
+    def test_continuous_status_updates_do_not_starve_curve_timer(self):
+        script = '''
+import time
+from PySide6.QtCore import QEventLoop, QTimer
+from modbus_dev.gui import Workbench, create_application
+from modbus_dev.domain.config import TaskConfig
+app = create_application()
+window = Workbench()
+window.apply_config(TaskConfig.from_mapping(dict(mode='rtu-slave',
+    serial=dict(port='TEST', baud=115200), duration_s=0)))
+window.show()
+window.monitor_tabs.setCurrentIndex(1)
+app.processEvents()
+panel = window.live_panel
+def publish():
+    now = time.monotonic()
+    row = dict(key='input:0:tx', point=0, name='压力', area='input', address=0,
+        direction='tx', value=now % 1, registers=[0, 0], function=4,
+        quality='submitted', sampled_s=now)
+    panel.ingest(dict(state='running', sampled_s=now, stale_after_s=1., rows=[row]))
+publish()
+updates = QTimer()
+updates.setInterval(200)
+updates.timeout.connect(publish)
+updates.start()
+loop = QEventLoop()
+QTimer.singleShot(2200, loop.quit)
+loop.exec()
+updates.stop()
+assert panel.table.rowCount() == 1
+assert panel.selected('input:0:tx')
+points = panel.history.series.get('input:0:tx', ())
+assert sum(value is not None for _, value in points) >= 3, list(points)
+window.close()
+'''
+        environment = dict(os.environ, QT_QPA_PLATFORM="offscreen")
+        result = subprocess.run([sys.executable, "-c", script], cwd=Path(__file__).resolve().parents[1],
+                                env=environment, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_values_permissions_visibility_and_stop_state(self):
         script = '''
 import time

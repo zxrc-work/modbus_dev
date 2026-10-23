@@ -34,7 +34,9 @@ class TrendPlot(QWidget):
 
     def sync_timer(self):
         if self.isVisible() and self.owner.running:
-            self.timer.start()
+            # 状态快照比绘图更频繁；重复启动会一直推迟 timeout。
+            if not self.timer.isActive():
+                self.timer.start()
         else:
             self.timer.stop()
 
@@ -117,7 +119,9 @@ class RealtimePanel(QWidget):
         heading = QHBoxLayout()
         heading.addWidget(label("实时数值", "section"))
         heading.addStretch()
-        heading.addWidget(label("数值 5Hz · 曲线 2Hz · 最近 10 秒", "caption"))
+        refresh_note = label(f"界面刷新：数值 {VALUE_REFRESH_HZ}Hz · 曲线 {CURVE_REFRESH_HZ}Hz · 最近 {CURVE_WINDOW_S} 秒", "caption")
+        refresh_note.setToolTip("界面按固定频率抽取最新通信值；实际数据更新和收发频率由周期、对端轮询与链路情况决定。")
+        heading.addWidget(refresh_note)
         layout.addLayout(heading)
         self.table = QTableWidget(0, 6)
         self.table.setObjectName("liveValues")
@@ -142,7 +146,7 @@ class RealtimePanel(QWidget):
         curve_layout.addLayout(self.legend)
         self.plot = TrendPlot(self)
         curve_layout.addWidget(self.plot, 1)
-        note = label("TX 实线：已提交驱动 · RX 虚线：已解析数值 · 降频趋势不代表原始采样", "caption")
+        note = label("TX 实线：已提交驱动 · RX 虚线：已解析数值 · 曲线抽取最新值，不保留全部通信采样点", "caption")
         note.setWordWrap(True)
         curve_layout.addWidget(note)
 
