@@ -1,9 +1,10 @@
-"""Small shared controls; native Qt selection and keyboard behavior are retained."""
+"""统一控件外观；箭头和勾选使用矢量绘制，保留 Qt 原生输入与键盘行为。"""
 from PySide6.QtCore import QEvent, QObject, QPoint, QSize, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
-    QComboBox, QFrame, QLabel, QListView, QProxyStyle, QStyle,
-    QStyledItemDelegate, QStyleOptionComboBox, QStyleOptionViewItem, QVBoxLayout,
+    QAbstractSpinBox, QCheckBox, QComboBox, QFrame, QLabel, QListView, QProxyStyle, QSpinBox, QStyle,
+    QStyledItemDelegate, QStyleOptionButton, QStyleOptionComboBox, QStyleOptionSpinBox,
+    QStyleOptionViewItem, QVBoxLayout,
 )
 
 from .gui_theme import COLORS, METRICS
@@ -86,6 +87,49 @@ class ComboBox(QComboBox):
         if y + popup.height() > bounds.bottom() + 1:
             y = self.mapToGlobal(QPoint(0, -popup.height() - 4)).y()
         popup.move(x, max(bounds.top(), y))
+
+
+class SpinBox(QSpinBox):
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        option = QStyleOptionSpinBox()
+        self.initStyleOption(option)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        # 样式表下部分平台不会绘制原生箭头，显式补齐并保留标准步进区域。
+        for control, enabled, direction in (
+                (QStyle.SC_SpinBoxUp, QAbstractSpinBox.StepUpEnabled, -1),
+                (QStyle.SC_SpinBoxDown, QAbstractSpinBox.StepDownEnabled, 1)):
+            bounds = self.style().subControlRect(QStyle.CC_SpinBox, option, control, self)
+            color = COLORS['muted'] if self.isEnabled() and option.stepEnabled & enabled else COLORS['disabled_ink']
+            painter.setPen(QPen(QColor(color), 1.4, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            center = bounds.center()
+            painter.drawPolyline([center + QPoint(-3, -direction), center + QPoint(0, direction),
+                                  center + QPoint(3, -direction)])
+        painter.end()
+
+
+class CheckBox(QCheckBox):
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        option = QStyleOptionButton()
+        self.initStyleOption(option)
+        bounds = self.style().subElementRect(QStyle.SE_CheckBoxIndicator, option, self)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        checked = self.isChecked()
+        fill = 'accent' if checked else 'panel'
+        if not self.isEnabled():
+            fill = 'disabled'
+        painter.setPen(QPen(QColor(COLORS['accent'] if checked and self.isEnabled() else COLORS['line_hover']), 1))
+        painter.setBrush(QColor(COLORS[fill]))
+        painter.drawRoundedRect(bounds.adjusted(1, 1, -1, -1), 3, 3)
+        if checked:
+            painter.setPen(QPen(QColor(COLORS['panel'] if self.isEnabled() else COLORS['disabled_ink']),
+                                1.6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            center = bounds.center()
+            painter.drawPolyline([center + QPoint(-4, 0), center + QPoint(-1, 3), center + QPoint(4, -3)])
+        painter.end()
 
 
 def label(text, role=None):

@@ -37,13 +37,20 @@ assert app.platformName() == 'offscreen'
 assert window.width() <= window.screen().availableGeometry().width()
 assert window.height() <= window.screen().availableGeometry().height()
 assert window.workspace.orientation() == Qt.Vertical
+for index, editor in enumerate(window.point_editors):
+    editor.enabled.setChecked(True)
+    if index % 2:
+        editor.fields['source.kind'].setCurrentIndex(1)
 for tab in range(window.config_tabs.count()):
     window.config_tabs.setCurrentIndex(tab)
     app.processEvents()
     scroll = window.config_tabs.widget(tab)
-    keys = ['addresses'] if tab == 0 else ['duration_s', 'logging.max_files']
-    for key in keys:
-        field = window.fields[key]
+    fields = ([window.fields['unit'], window.fields['duration_s']] if tab == 0 else
+              [field for editor in window.point_editors for field in
+               [editor.enabled, *[widget for widget in editor.fields.values() if not widget.isHidden()]]]
+              if tab == 1 else
+              [window.fields['logging.max_files']])
+    for field in fields:
         scroll.ensureWidgetVisible(field)
         app.processEvents()
         position = field.mapTo(scroll.viewport(), field.rect().center())
@@ -82,7 +89,7 @@ window.close()
                 self.assertAlmostEqual(report["dpr"], scale)
                 self.assertTrue(any("YaHei" in family for family in report["fonts"]))
                 self.assertTrue(all(height == 36 for height in report["control_heights"].values()))
-                self.assertEqual(len(report["screenshots"]), 6)
+                self.assertEqual(len(report["screenshots"]), 9)
                 self.assertTrue(all(size <= available for size, available in
                                     zip(report["logical_size"], report["available_size"])))
                 for screenshot in report["screenshots"]:

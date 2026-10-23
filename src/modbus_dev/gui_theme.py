@@ -1,4 +1,4 @@
-"""Shared light theme and logical-pixel metrics for the desktop workbench."""
+"""统一浅色主题与逻辑像素尺寸，测点地址控件沿用原有高 DPI 设计。"""
 from dataclasses import dataclass
 
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QPalette
@@ -85,6 +85,8 @@ def application_stylesheet():
     QLabel[role="title"] {{ font-size: {m.title_size}px; font-weight: 700; }}
     QLabel[role="section"] {{ font-size: {m.section_size}px; font-weight: 600; }}
     QLabel[role="caption"] {{ color: {c['muted']}; font-size: {m.caption_size}px; }}
+    QLabel[role="pointRange"] {{ color: {c['muted']}; font-size: {m.caption_size}px; }}
+    QLabel[tone="error"] {{ color: {c['error']}; }}
     QLabel[role="metric"] {{ font-size: {m.metric_size}px; font-weight: 600; }}
     QLabel#brandMark {{ background: {c['accent']}; color: {c['panel']}; border-radius: 10px;
         font-size: {m.title_size}px; font-weight: 700; }}
@@ -104,13 +106,17 @@ def application_stylesheet():
         margin-top: 12px; padding-top: 20px; font-size: {m.section_size}px; font-weight: 600; }}
     QGroupBox::title {{ subcontrol-origin: margin; subcontrol-position: top left;
         padding: 0 8px 0 0; background: {c['panel']}; }}
-    QLineEdit, QComboBox {{ background: {c['panel']}; border: 1px solid {c['line']};
+    QLineEdit, QComboBox, QSpinBox {{ background: {c['panel']}; border: 1px solid {c['line']};
         border-radius: {m.radius}px; padding: 4px 10px;
         min-height: {control_content}px; max-height: {control_content}px;
         selection-background-color: {c['accent_soft']}; selection-color: {c['ink']}; }}
-    QLineEdit:hover, QComboBox:hover {{ border-color: {c['line_hover']}; }}
-    QLineEdit:focus, QComboBox:focus, QComboBox:on {{ border-color: {c['focus']}; }}
-    QLineEdit:disabled, QComboBox:disabled {{ background: {c['disabled']}; color: {c['disabled_ink']}; }}
+    QLineEdit:hover, QComboBox:hover, QSpinBox:hover {{ border-color: {c['line_hover']}; }}
+    QLineEdit:focus, QComboBox:focus, QComboBox:on, QSpinBox:focus {{ border-color: {c['focus']}; }}
+    QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled {{ background: {c['disabled']}; color: {c['disabled_ink']}; }}
+    QSpinBox {{ padding-right: 26px; }}
+    QSpinBox::up-button, QSpinBox::down-button {{ width: 22px; border: none;
+        border-left: 1px solid {c['line']}; background: {c['hover']}; }}
+    QSpinBox::up-button:hover, QSpinBox::down-button:hover {{ background: {c['pressed']}; }}
     QComboBox {{ padding-right: 32px; }}
     QComboBox::drop-down {{ subcontrol-origin: border; subcontrol-position: top right;
         width: 30px; background: transparent; border: none; }}

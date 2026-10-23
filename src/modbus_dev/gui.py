@@ -10,16 +10,17 @@ import uuid
 from PySide6.QtCore import QProcess, QTimer, QUrl, Qt
 from PySide6.QtGui import QDesktopServices, QFont
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QGroupBox,
+    QApplication, QComboBox, QFileDialog, QFormLayout, QGroupBox,
     QHBoxLayout, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit,
     QPushButton, QScrollArea, QSplitter, QTableWidget, QTableWidgetItem,
     QTabWidget, QVBoxLayout, QWidget, QHeaderView,
 )
 
 from .application.session import check_capabilities
-from .domain.config import TaskConfig, load_config
+from .domain.config import MAX_POINTS, PointConfig, TaskConfig, load_config, point_conflicts
+from .gui_points import PointEditor
 from .gui_theme import METRICS, application_palette, application_stylesheet, ui_font
-from .gui_widgets import ComboBox, WorkbenchStyle, card, label, refresh_style
+from .gui_widgets import CheckBox, ComboBox, WorkbenchStyle, card, label, refresh_style
 from .runtime import default_output_directory, worker_command
 
 
@@ -65,7 +66,6 @@ class Workbench(QMainWindow):
         self.stop_timer.setSingleShot(True)
         self.stop_timer.timeout.connect(self.force_stop)
         self.fields["mode"].currentIndexChanged.connect(self.mode_changed)
-        self.fields["source.kind"].currentIndexChanged.connect(self.mode_changed)
         for key in ("host", "port", "unit", "serial.port", "serial.baud"):
             self.fields[key].textChanged.connect(self.update_connection_summary)
         self.apply_config(TaskConfig.from_mapping(self.base_config))
@@ -106,7 +106,7 @@ class Workbench(QMainWindow):
         self.editor, form_layout = card()
         self.editor.setMinimumWidth(374)
         form_layout.addWidget(label("会话配置", "section"))
-        form_layout.addWidget(label("设置通信连接、点表和数据源。", "caption"))
+        form_layout.addWidget(label("配置设备连接、统一时序与四个独立测点。", "caption"))
         self.config_buttons = QWidget()
         config_actions = QHBoxLayout(self.config_buttons)
         config_actions.setContentsMargins(0, 0, 0, 0)
@@ -152,42 +152,53 @@ class Workbench(QMainWindow):
             layout.addWidget(box)
             return box
 
-        connection = page("连接与点表")
+        connection = page("连接与时序")
         group(connection, "通信模式", [("mode", "模式", ["tcp-slave", "rtu-slave", "rtu-master"]),
                                       ("policy", "运行策略", ["continuous", "strict"])])
         self.tcp_box = group(connection, "TCP 监听", [("host", "绑定地址", None), ("port", "端口", None)])
         self.serial_box = group(connection, "串口连接", [("serial.port", "串口", None), ("serial.baud", "波特率", None),
                                                        ("serial.parity", "校验位", ["N", "E", "O"]),
                                                        ("serial.stop_bits", "停止位", ["1", "2"])])
-        self.rts = QCheckBox("驱动 RTS 切换（仅 Windows）")
+        self.rts = CheckBox("驱动 RTS 切换（仅 Windows）")
         self.serial_box.layout().addRow(self.rts)
         refresh = QPushButton("查看可用串口")
         refresh.clicked.connect(self.ports)
         self.serial_box.layout().addRow(refresh)
-        points = group(connection, "寄存器点表", [("unit", "站号", None), ("addresses", "起始地址", None),
-                                                ("byte_order", "字节排列", ["B1234", "B4321", "B2143", "B3412"])])
-        note = label("float32 零基地址，用英文逗号分隔，如 0, 2, 4, 6。", "caption")
-        note.setWordWrap(True)
-        points.layout().addRow(note)
-        connection.addStretch()
-        data = page("数据与时序")
-        group(data, "数据源", [("source.kind", "数据源", ["constant", "sine"]),
-                              ("source.value", "常量 / 偏置", None), ("source.amplitude", "正弦振幅", None),
-                              ("source.frequency_hz", "频率 Hz", None)])
-        group(data, "运行时序", [("period_ms", "数据周期 ms", None), ("timeout_ms", "I/O 超时 ms", None),
+        group(connection, "设备", [("unit", "站号", None)])
+        group(connection, "统一运行时序", [("period_ms", "数据周期 ms", None), ("timeout_ms", "I/O 超时 ms", None),
                                 ("duration_s", "运行时长 s", None)])
+        self.fields["period_ms"].setToolTip("所有启用测点共用一个数据时钟，各点独立计算数值。")
+        self.fields["timeout_ms"].setToolTip("主站为整周期交易预算；从站为单次写等待上限，不是轮询周期。")
         self.fields["duration_s"].setToolTip("0 表示持续运行，直到手动停止。")
         self.fields["duration_s"].setPlaceholderText("0 = 持续运行")
-        retention = group(data, "日志保留", [("logging.max_files", "最多保留分片", None)])
+        self.master_box = group(connection, "主站读回与调度", [("readback_every", "读回间隔 / 周期", None),
+                                                      ("read_function", "读回功能码", ["3", "4"]),
+                                                      ("schedule_tolerance_percent", "调度容差 %", None)])
+        self.fields["readback_every"].setToolTip("每 N 周期读回一次；0 表示关闭读回。")
+        connection.addStretch()
+
+        data = page("数据设置")
+        group(data, "公共编码", [("byte_order", "字节序", ["B1234", "B4321", "B2143", "B3412"])])
+        note = label("同一设备 · 每点独立数据源 · 共用周期与 float32 字节序", "caption")
+        note.setWordWrap(True)
+        data.addWidget(note)
+        self.points_status = label("", "caption")
+        self.points_status.setWordWrap(True)
+        data.addWidget(self.points_status)
+        # 按统一模型创建四个编辑区，不再用逗号字符串表达多个测点。
+        self.point_editors = [PointEditor(i) for i in range(MAX_POINTS)]
+        for editor in self.point_editors:
+            data.addWidget(editor)
+            editor.changed.connect(self.update_points_summary)
+        data.addStretch()
+
+        other = page("其他设置")
+        retention = group(other, "日志保留", [("logging.max_files", "最多保留分片", None)])
         self.fields["logging.max_files"].setToolTip("1～10000，包含当前文件；每片不超过 32 MiB，超限删除最旧分片。")
         retention_note = label("每片最多 32 MiB；仅保留最新分片，淘汰历史后会标明证据不完整。", "caption")
         retention_note.setWordWrap(True)
         retention.layout().addRow(retention_note)
-        self.master_box = group(data, "主站读回与调度", [("readback_every", "读回间隔 / 周期", None),
-                                                      ("read_function", "读回功能码", ["3", "4"]),
-                                                      ("schedule_tolerance_percent", "调度容差 %", None)])
-        self.fields["readback_every"].setToolTip("每 N 周期读回一次；0 表示关闭读回。")
-        data.addStretch()
+        other.addStretch()
         self.workspace.addWidget(self.editor)
 
     def _build_runtime(self):
@@ -299,42 +310,44 @@ class Workbench(QMainWindow):
         return str(field.currentData()) if isinstance(field, QComboBox) else field.text().strip()
 
     def apply_config(self, config):
+        config = TaskConfig.from_mapping(config.to_mapping())
         check_capabilities(config)
         self.base_config = config.to_mapping()
         for key, field in self.fields.items():
             value = self.base_config
             for part in key.split("."):
                 value = value[part]
-            text = ", ".join(map(str, value)) if key == "addresses" else str(value)
+            text = str(value)
             if isinstance(field, QComboBox):
                 field.setCurrentIndex(field.findData(text))
             else:
                 field.setText(text)
         self.rts.setChecked(config.serial.rts_toggle)
+        for editor, point in zip(self.point_editors, config.points):
+            editor.apply_point(point)
         self.mode_changed()
 
     def configuration(self):
         data = json.loads(json.dumps(self.base_config))
         integers = {"unit", "port", "period_ms", "timeout_ms", "readback_every", "read_function",
                     "serial.baud", "serial.stop_bits", "logging.max_files"}
-        floats = {"duration_s", "schedule_tolerance_percent", "source.value", "source.amplitude", "source.frequency_hz"}
+        floats = {"duration_s", "schedule_tolerance_percent"}
         for key in self.fields:
             value = self.text(key)
             try:
-                if key == "addresses":
-                    value = [int(item.strip()) for item in value.split(",")]
-                elif key in integers:
+                if key in integers:
                     value = int(value)
                 elif key in floats:
                     value = float(value)
             except ValueError:
-                raise ValueError(f"{key}: 请填写有效数字（地址用英文逗号分隔）") from None
+                raise ValueError(f"{self.fields[key].accessibleName()}: 请填写有效数字") from None
             if "." in key:
                 parent, name = key.split(".")
                 data[parent][name] = value
             else:
                 data[key] = value
         data["serial"]["rts_toggle"] = self.rts.isChecked()
+        data["points"] = [editor.configuration() for editor in self.point_editors]
         if data["mode"] != "rtu-master":
             data["readback_every"] = 0
         config = TaskConfig.from_mapping(data)
@@ -346,14 +359,29 @@ class Workbench(QMainWindow):
         self.tcp_box.setVisible(mode == "tcp-slave")
         self.serial_box.setVisible(mode != "tcp-slave")
         self.master_box.setVisible(mode == "rtu-master")
-        for key in ("source.amplitude", "source.frequency_hz"):
-            self.fields[key].setEnabled(self.text("source.kind") == "sine")
         self.hint.setText("主站会使用 FC16 写入设备；请核对串口、站号与点表。" if mode == "rtu-master" else
                           "只读从站 · FC03/04 · 完整 float32 点 · 不接受写入")
         self.hint.setProperty("writing", mode == "rtu-master")
         refresh_style(self.hint)
         self.update_connection_summary()
         self.update_metrics()
+
+    def update_points_summary(self):
+        # 即时检查只读取启用和地址，避免用户正在输入波形参数时弹出错误。
+        points = [PointConfig(enabled=editor.enabled.isChecked(), address=editor.fields["address"].value())
+                  for editor in self.point_editors]
+        conflicts = point_conflicts(points)
+        overlapping = {index for pair in conflicts for index in pair}
+        for i, editor in enumerate(self.point_editors):
+            editor.set_conflict(i in overlapping)
+        count = sum(point.enabled for point in points)
+        if conflicts:
+            text = "；".join(f"测点 {a + 1} 与测点 {b + 1} 地址重叠" for a, b in conflicts)
+        else:
+            text = f"已启用 {count} / {MAX_POINTS} 个测点" if count else "请至少启用一个测点"
+        self.points_status.setText(text)
+        self.points_status.setProperty("tone", "error" if conflicts or not count else "idle")
+        refresh_style(self.points_status)
 
     def update_connection_summary(self, *_):
         mode = self.text("mode")

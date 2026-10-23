@@ -1,11 +1,14 @@
 """版本化配置模型；CLI、GUI 和日志保留策略共用校验。"""
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 import json
 import math
 from pathlib import Path
 import struct
 
 from .events import ConfigurationError
+
+MAX_POINTS = 4
+REGISTERS_PER_POINT = 2
 
 
 def fail(path, message):
@@ -74,28 +77,71 @@ class SourceConfig:
     path: str = ""
     channels: tuple[str, ...] = ()
 
-    def validate(self, period_ms, points):
-        choice(self.kind, "source.kind", ("constant", "sine", "dyn"))
-        number(self.value, "source.value", -3.4028234e38, 3.4028234e38)
-        number(self.amplitude, "source.amplitude", 0, 3.4028234e38)
-        number(self.frequency_hz, "source.frequency_hz", 0, 1e6)
-        if self.kind == "sine" and not 0 < self.frequency_hz < 500 / period_ms:
-            fail("source.frequency_hz", "must be positive and below output Nyquist frequency")
-        if self.kind in ("constant", "sine"):
+    @classmethod
+    def from_mapping(cls, data, path="source"):
+        data = dict(section(data, path, cls.__dataclass_fields__))
+        channels = data.get("channels", [])
+        if not isinstance(channels, (list, tuple)) or any(not isinstance(c, str) for c in channels):
+            fail(path + ".channels", "must be an array of strings")
+        data["channels"] = tuple(channels)
+        return cls(**data)
+
+    def validate(self, period_ms, points=1, path="source", *, active=True):
+        choice(self.kind, path + ".kind", ("constant", "sine", "dyn"))
+        number(self.value, path + ".value", -3.4028234e38, 3.4028234e38)
+        number(self.amplitude, path + ".amplitude", 0, 3.4028234e38)
+        number(self.frequency_hz, path + ".frequency_hz", 0, 1e6)
+        if active and self.kind == "sine" and not 0 < self.frequency_hz < 500 / period_ms:
+            fail(path + ".frequency_hz", "must be positive and below output Nyquist frequency")
+        if active and self.kind in ("constant", "sine"):
             amplitude = self.amplitude if self.kind == "sine" else 0
             try:
                 for value in (self.value - amplitude, self.value + amplitude):
                     if not math.isfinite(struct.unpack(">f", struct.pack(">f", value))[0]):
                         raise OverflowError()
             except (OverflowError, struct.error):
-                fail("source", "signal exceeds finite float32 range")
-        if self.kind == "dyn":
-            text(self.path, "source.path")
+                fail(path, "signal exceeds finite float32 range")
+        if active and self.kind == "dyn":
+            text(self.path, path + ".path")
             if len(self.channels) != points or len(set(self.channels)) != points:
-                fail("source.channels", "provide one unique channel per point")
+                fail(path + ".channels", "provide one unique channel per point")
             choice(period_ms, "period_ms for DYN", (100, 200, 250, 500, 1000))
         for channel in self.channels:
-            text(channel, "source.channels")
+            text(channel, path + ".channels")
+
+
+@dataclass(frozen=True)
+class PointConfig:
+    """单个测点独立保存地址和数据源；禁用点不参与通信和地址冲突检查。"""
+    enabled: bool = True
+    name: str = ""
+    address: int = 0
+    source: SourceConfig = field(default_factory=SourceConfig)
+
+    @classmethod
+    def from_mapping(cls, data, path):
+        data = dict(section(data, path, cls.__dataclass_fields__))
+        data["source"] = SourceConfig.from_mapping(data.get("source", {}), path + ".source")
+        return cls(**data)
+
+    def validate(self, period_ms, path):
+        if not isinstance(self.enabled, bool):
+            fail(path + ".enabled", "must be a boolean")
+        if not isinstance(self.name, str):
+            fail(path + ".name", "must be a string")
+        number(self.address, path + ".address", 0, 65536 - REGISTERS_PER_POINT, True)
+        self.source.validate(period_ms, path=path + ".source", active=self.enabled)
+
+
+def default_point(index):
+    return PointConfig(enabled=index == 0, address=index * REGISTERS_PER_POINT)
+
+
+def point_conflicts(points):
+    """返回启用点中重叠的槽位编号，供配置校验和界面即时提示共用。"""
+    active = [(i, point) for i, point in enumerate(points) if point.enabled]
+    return [(i, j) for n, (i, first) in enumerate(active) for j, second in active[n + 1:]
+            if abs(first.address - second.address) < REGISTERS_PER_POINT]
 
 
 @dataclass(frozen=True)
@@ -109,11 +155,12 @@ class LoggingConfig:
 
 @dataclass(frozen=True)
 class TaskConfig:
-    schema_version: int = 1
+    schema_version: int = 2
     mode: str = "rtu-master"
     policy: str = "continuous"
     unit: int = 1
-    addresses: tuple[int, ...] = (0,)
+    points: tuple[PointConfig, ...] = field(default_factory=lambda: tuple(
+        default_point(i) for i in range(MAX_POINTS)))
     byte_order: str = "B1234"
     read_function: int = 3
     readback_every: int = 0
@@ -122,32 +169,47 @@ class TaskConfig:
     timeout_ms: int = 80
     duration_s: float = 120.0
     serial: SerialConfig = field(default_factory=SerialConfig)
-    source: SourceConfig = field(default_factory=SourceConfig)
     host: str = "127.0.0.1"
     port: int = 1502
     logging: LoggingConfig = field(default_factory=LoggingConfig)
 
     @classmethod
     def from_mapping(cls, data):
-        data = dict(section(data, "config", cls.__dataclass_fields__))
+        data = dict(section(data, "config", (*cls.__dataclass_fields__, "addresses", "source")))
+        version = data.get("schema_version", 2 if "points" in data else 1)
+        number(version, "schema_version", 1, 2, True)
+        number(data.get("period_ms", 100), "period_ms", 1, 60000, True)
+        if version == 1:
+            if "points" in data:
+                fail("points", "independent points require schema_version=2")
+            addresses = data.pop("addresses", [0])
+            if not isinstance(addresses, (list, tuple)) or not 1 <= len(addresses) <= MAX_POINTS:
+                fail("addresses", f"provide 1..{MAX_POINTS} float32 point addresses")
+            source = SourceConfig.from_mapping(data.pop("source", {}))
+            source.validate(data.get("period_ms", 100), len(addresses))
+            # 旧版共享源只在加载边界展开；运行时始终使用每点独立配置。
+            points = []
+            for i, address in enumerate(addresses):
+                point_source = replace(source, channels=(source.channels[i],)) if source.kind == "dyn" else source
+                points.append(PointConfig(address=address, source=point_source))
+        else:
+            if "addresses" in data or "source" in data:
+                fail("config", "schema_version=2 uses points instead of addresses/source")
+            raw_points = data.pop("points", [asdict(default_point(0))])
+            if not isinstance(raw_points, (list, tuple)) or not 1 <= len(raw_points) <= MAX_POINTS:
+                fail("points", f"provide 1..{MAX_POINTS} point configurations")
+            points = [PointConfig.from_mapping(point, f"points[{i}]")
+                      for i, point in enumerate(raw_points)]
+        points.extend(default_point(i) for i in range(len(points), MAX_POINTS))
+        data["points"], data["schema_version"] = tuple(points), 2
         serial = section(data.pop("serial", {}), "serial", SerialConfig.__dataclass_fields__)
-        source = dict(section(data.pop("source", {}), "source", SourceConfig.__dataclass_fields__))
         logging = section(data.pop("logging", {}), "logging", LoggingConfig.__dataclass_fields__)
-        channels = source.get("channels", [])
-        if not isinstance(channels, (list, tuple)) or any(not isinstance(c, str) for c in channels):
-            fail("source.channels", "must be an array of strings")
-        source["channels"] = tuple(channels)
-        addresses = data.get("addresses", [0])
-        if not isinstance(addresses, (list, tuple)):
-            fail("addresses", "must be an array")
-        data["addresses"] = tuple(addresses)
-        result = cls(**data, serial=SerialConfig(**serial), source=SourceConfig(**source),
-                     logging=LoggingConfig(**logging))
+        result = cls(**data, serial=SerialConfig(**serial), logging=LoggingConfig(**logging))
         result.validate()
         return result
 
     def validate(self):
-        number(self.schema_version, "schema_version", 1, 1, True)
+        number(self.schema_version, "schema_version", 2, 2, True)
         choice(self.mode, "mode", ("rtu-master", "rtu-slave", "tcp-slave"))
         choice(self.policy, "policy", ("continuous", "strict"))
         number(self.unit, "unit", 1, 247, True)
@@ -158,18 +220,20 @@ class TaskConfig:
         number(self.readback_every, "readback_every", 0, 1000000, True)
         number(self.read_function, "read_function", 3, 4, True)
         choice(self.byte_order, "byte_order", ("B1234", "B4321", "B2143", "B3412"))
-        if not 1 <= len(self.addresses) <= 4:
-            fail("addresses", "first release supports 1..4 float32 points")
-        for address in self.addresses:
-            number(address, "addresses", 0, 65534, True)
-        ordered = sorted(self.addresses)
-        if any(b - a < 2 for a, b in zip(ordered, ordered[1:])):
-            fail("addresses", "float32 points must not overlap")
+        if not 1 <= len(self.points) <= MAX_POINTS:
+            fail("points", f"provide 1..{MAX_POINTS} point configurations")
+        for i, point in enumerate(self.points):
+            point.validate(self.period_ms, f"points[{i}]")
+        if not self.enabled_points:
+            fail("points", "请至少启用一个测点")
+        conflicts = point_conflicts(self.points)
+        if conflicts:
+            first, second = conflicts[0]
+            fail("points", f"测点 {first + 1} 与测点 {second + 1} 的寄存器范围重叠")
         if self.mode.startswith("rtu"):
             self.serial.validate()
         text(self.host, "host")
         number(self.port, "port", 1, 65535, True)
-        self.source.validate(self.period_ms, len(self.addresses))
         self.logging.validate()
         if self.mode != "rtu-master" and self.readback_every:
             fail("readback_every", "readback is only supported in RTU master mode")
@@ -182,6 +246,14 @@ class TaskConfig:
 
     def to_mapping(self):
         return asdict(self)
+
+    @property
+    def enabled_points(self):
+        return tuple(point for point in self.points if point.enabled)
+
+    @property
+    def addresses(self):
+        return tuple(point.address for point in self.enabled_points)
 
     @property
     def schedule_tolerance_ms(self):

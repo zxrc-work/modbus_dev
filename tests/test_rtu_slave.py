@@ -1,4 +1,4 @@
-"""Independent RTU master and deterministic serial driver/clock fault tests."""
+"""通过独立主站字节和确定性驱动时钟验证从站、独立测点及故障恢复。"""
 from pathlib import Path
 import struct
 import tempfile
@@ -186,6 +186,21 @@ class RtuSlaveSessionTests(unittest.TestCase):
             expected = [frame(b"\x01\x03\x04" + bytes(struct.pack(">f", value)[i] for i in indexes))
                         for value in (10, 11)]
             self.assertEqual([data for _, data in ports[0].writes], expected)
+
+    def test_independent_point_snapshot_and_disabled_address_hole(self):
+        packets = [(.01, frame(b"\x01\x03\x00\x00\x00\x04")),
+                   (.11, frame(b"\x01\x04\x00\x04\x00\x02")),
+                   (.21, frame(b"\x01\x04\x00\x06\x00\x02"))]
+        result, ports, _, _ = self.run_session(packets=packets, points=[
+            dict(address=6, source=dict(kind="sine", value=10, amplitude=2, frequency_hz=1.25)),
+            dict(address=0, source=dict(value=12.5)),
+            dict(enabled=False, address=4, source=dict(value=999)),
+            dict(address=2, source=dict(value=-3.5))])
+        self.assertEqual(result["exit_code"], 0)
+        self.assertEqual([data for _, data in ports[0].writes], [
+            frame(b"\x01\x03\x08" + struct.pack(">ff", 12.5, -3.5)),
+            frame(b"\x01\x84\x02"),
+            frame(b"\x01\x04\x04" + struct.pack(">f", 12))])
 
     def test_short_write_and_disconnect_reconnect_at_bounded_rate(self):
         read = frame(b"\x01\x03\x00\x00\x00\x02")

@@ -201,11 +201,14 @@ class GuiTests(unittest.TestCase):
         QTest.keyClick(mode.view(), Qt.Key_Return)
         self.assertEqual(self.window.text("mode"), "rtu-master")
         self.assertFalse(self.window.master_box.isHidden())
-        source = self.window.fields["source.kind"]
+        point = self.window.point_editors[0]
+        source = point.fields["source.kind"]
         source.setCurrentIndex(source.findData("sine"))
-        self.assertTrue(self.window.fields["source.amplitude"].isEnabled())
+        self.assertTrue(point.fields["source.amplitude"].isEnabled())
+        self.assertEqual(point.form.labelForField(point.fields["source.value"]).text(), "偏置")
         source.setCurrentIndex(source.findData("constant"))
-        self.assertFalse(self.window.fields["source.amplitude"].isEnabled())
+        self.assertFalse(point.fields["source.amplitude"].isEnabled())
+        self.assertEqual(point.form.labelForField(point.fields["source.value"]).text(), "数值")
 
     def test_summary_uses_counters_from_the_completed_session(self):
         self.window.counter_mode = "tcp-slave"
@@ -216,25 +219,112 @@ class GuiTests(unittest.TestCase):
         self.assertEqual(self.window.metric_labels[0].text(), "数据更新")
 
     def test_visible_controls_share_the_same_height(self):
-        from PySide6.QtWidgets import QComboBox, QLineEdit, QPushButton
+        from PySide6.QtWidgets import QComboBox, QLineEdit, QPushButton, QSpinBox
         from modbus_dev.gui_theme import METRICS
         for mode in ("tcp-slave", "rtu-slave", "rtu-master"):
             self.window.apply_config(TaskConfig.from_mapping(dict(mode=mode, serial=dict(port="TEST"))))
             for tab in range(self.window.config_tabs.count()):
                 self.window.config_tabs.setCurrentIndex(tab)
                 self.app.processEvents()
-                widgets = [widget for kind in (QComboBox, QLineEdit, QPushButton)
-                           for widget in self.window.findChildren(kind)]
+                widgets = [widget for kind in (QComboBox, QLineEdit, QPushButton, QSpinBox)
+                           for widget in self.window.findChildren(kind)
+                           if not (isinstance(widget, QLineEdit) and isinstance(widget.parent(), QSpinBox))]
                 for widget in widgets:
                     if widget.isVisible():
                         self.assertEqual(widget.height(), METRICS.control_height, widget.objectName() or widget.text())
 
     def test_invalid_configuration_never_starts_worker(self):
-        self.window.fields["addresses"].setText("0, 1")
+        self.window.point_editors[1].enabled.setChecked(True)
+        self.window.point_editors[1].fields["address"].setValue(1)
         with patch.object(self.window, "error") as error:
             self.window.start()
         error.assert_called_once()
         self.assertIsNone(self.window.process)
+
+    def test_pages_separate_connection_data_and_other_settings(self):
+        self.assertEqual([self.window.config_tabs.tabText(i) for i in range(3)],
+                         ["连接与时序", "数据设置", "其他设置"])
+        expected = {"period_ms": 0, "duration_s": 0, "timeout_ms": 0, "readback_every": 0,
+                    "byte_order": 1, "logging.max_files": 2}
+        for key, tab in expected.items():
+            self.assertTrue(self.window.config_tabs.widget(tab).isAncestorOf(self.window.fields[key]))
+        self.assertNotIn("addresses", self.window.fields)
+        self.assertEqual(len(self.window.point_editors), 4)
+        for editor in self.window.point_editors:
+            self.assertTrue(self.window.config_tabs.widget(1).isAncestorOf(editor))
+
+    def test_point_settings_roundtrip_disabled_slots_and_conflict_feedback(self):
+        config = TaskConfig.from_mapping(dict(mode="tcp-slave", points=[
+            dict(name="温度", address=8, source=dict(value=12.5)),
+            dict(enabled=False, name="预留", address=8, source=dict(kind="sine", frequency_hz=1)),
+            dict(name="压力", address=0, source=dict(kind="sine", value=5, amplitude=2, frequency_hz=.5)),
+            dict(enabled=False, address=20, source=dict(value=-1))]))
+        self.window.apply_config(config)
+        self.assertEqual(self.window.configuration(), config)
+        second = self.window.point_editors[1]
+        self.assertTrue(second.body.isHidden())
+        second.enabled.setChecked(True)
+        self.assertFalse(second.body.isHidden())
+        self.assertIn("测点 1 与测点 2", self.window.points_status.text())
+        self.assertEqual(second.range_label.property("tone"), "error")
+        second.fields["address"].setValue(4)
+        self.assertNotIn("重叠", self.window.points_status.text())
+        self.assertEqual(second.range_label.property("tone"), "idle")
+        self.assertEqual(self.window.configuration().addresses, (8, 4, 0))
+        for editor in self.window.point_editors:
+            editor.enabled.setChecked(False)
+        self.assertIn("至少启用", self.window.points_status.text())
+        with self.assertRaisesRegex(ValueError, "至少启用"):
+            self.window.configuration()
+
+    def test_independent_point_values_reach_actual_worker(self):
+        self.window.apply_config(TaskConfig.from_mapping(dict(mode="tcp-slave", duration_s=0,
+            port=available_port(), points=[dict(address=2, source=dict(value=-3.5)),
+                                          dict(address=0, source=dict(value=12.5))])))
+        self.window.start()
+        self.wait_for(lambda: self.window.status.text() == "运行中")
+        with socket.create_connection(("127.0.0.1", int(self.window.text("port"))), timeout=1) as peer:
+            peer.sendall(bytes.fromhex("000700000006010300000004"))
+            response = b""
+            while len(response) < 17:
+                chunk = peer.recv(17 - len(response))
+                self.assertTrue(chunk)
+                response += chunk
+        self.assertEqual(response.hex(), "00070000000b01030841480000c0600000")
+        self.window.stop()
+        self.wait_for(lambda: self.window.temporary is None)
+        snapshot = json.loads((self.window.last_output / "config.json").read_text(encoding="utf-8"))
+        self.assertEqual(snapshot["schema_version"], 2)
+        self.assertEqual([p["source"]["value"] for p in snapshot["points"][:2]], [-3.5, 12.5])
+
+    def test_address_spinbox_and_disabled_point_parameters(self):
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+        editor = self.window.point_editors[0]
+        self.window.config_tabs.setCurrentIndex(1)
+        address = editor.fields["address"]
+        address.setFocus()
+        QTest.keyClick(address, Qt.Key_Up)
+        self.assertEqual(address.value(), 1)
+        QTest.keyClick(address, Qt.Key_Down)
+        self.assertEqual(address.value(), 0)
+        address.setValue(65534)
+        QTest.keyClick(address, Qt.Key_Up)
+        self.assertEqual(address.value(), 65534)
+        self.assertIn("65534～65535", editor.range_label.text())
+        editor.fields["source.value"].setText("23.75")
+        editor.enabled.setChecked(False)
+        editor.enabled.setChecked(True)
+        self.assertEqual(self.window.configuration().enabled_points[0].source.value, 23.75)
+
+    def test_disabled_unsupported_source_is_preserved_until_enabled(self):
+        config = TaskConfig.from_mapping(dict(mode="tcp-slave", points=[dict(address=0),
+            dict(enabled=False, address=2, source=dict(kind="dyn", path="reserved.dyn"))]))
+        self.window.apply_config(config)
+        self.assertEqual(self.window.configuration(), config)
+        self.window.point_editors[1].enabled.setChecked(True)
+        with self.assertRaisesRegex(ValueError, "测点 2"):
+            self.window.configuration()
 
     def test_start_stop_and_restart(self):
         self.window.start()

@@ -1,4 +1,4 @@
-"""Single-session entry point, shared by CLI and a future GUI worker."""
+"""CLI 与 GUI 共用的单会话入口，按启用测点执行独立采样与分组通信。"""
 from collections import Counter
 import os
 from pathlib import Path
@@ -19,7 +19,7 @@ _ACTIVE_SESSION = threading.Lock()
 
 def check_capabilities(config):
     config.validate()
-    if config.source.kind not in ("constant", "sine"):
+    if any(point.source.kind not in ("constant", "sine") for point in config.enabled_points):
         raise ValueError("This build runs constant/sine sources only; offline sources are deferred until after GUI")
     if config.serial.rts_toggle and os.name != "nt":
         raise ValueError("RTS toggle currently uses the Windows driver")

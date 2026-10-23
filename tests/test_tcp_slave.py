@@ -150,6 +150,44 @@ class TcpSlaveTests(unittest.TestCase):
 
 
 class TcpLifecycleTests(unittest.TestCase):
+    def test_independent_points_and_disabled_holes_over_real_tcp(self):
+        stop, ready = threading.Event(), threading.Event()
+        engines, results = [], []
+        config = TaskConfig.from_mapping(dict(mode="tcp-slave", duration_s=0, points=[
+            dict(address=6, source=dict(value=3.75)),
+            dict(address=0, source=dict(value=12.5)),
+            dict(enabled=False, address=4, source=dict(value=999)),
+            dict(address=2, source=dict(value=-3.5))]))
+        def factory(c, control, emit):
+            engine = TcpSlaveEngine(replace(c, port=0), control, emit)
+            engines.append(engine)
+            publish = engine.publish
+            def signal(registers):
+                publish(registers)
+                ready.set()
+            engine.publish = signal
+            return engine
+        with tempfile.TemporaryDirectory() as root:
+            runner = SessionRunner(config, Path(root) / "run", stop=stop, engine_factory=factory)
+            thread = threading.Thread(target=lambda: results.append(runner.run()))
+            thread.start()
+            try:
+                self.assertTrue(ready.wait(3))
+                with socket.create_connection(engines[0].bound_address, timeout=1) as client:
+                    for function in (3, 4):
+                        for address, count, expected in (
+                                (0, 4, bytes((function, 8)) + struct.pack(">ff", 12.5, -3.5)),
+                                (4, 2, bytes((function | 128, 2))),
+                                (6, 2, bytes((function, 4)) + struct.pack(">f", 3.75)),
+                                (0, 8, bytes((function | 128, 2)))):
+                            client.sendall(frame(struct.pack(">BHH", function, address, count)))
+                            self.assertEqual(receive(client), frame(expected))
+            finally:
+                stop.set()
+                thread.join(3)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(results[0]["exit_code"], 130)
+
     def test_address_reuse_cannot_share_an_active_listener(self):
         config = TaskConfig.from_mapping(dict(mode="tcp-slave"))
         first = TcpSlaveEngine(replace(config, port=0), Control(), lambda event: None)

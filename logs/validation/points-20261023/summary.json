@@ -1,0 +1,26 @@
+{
+  "date": "2026-10-23",
+  "scope": "source-only",
+  "platform": "macOS-27.0.1-arm64-arm-64bit",
+  "tests": {
+    "collected": 130,
+    "passed": 129,
+    "skipped": 1,
+    "duration_s": 7.805,
+    "result": "passed"
+  },
+  "preview": {
+    "platform": "offscreen",
+    "pages": 9,
+    "point_screenshots": 12
+  },
+  "cython_translation_modules": 7,
+  "package_rebuilt": false,
+  "full_log": "results/points-20261023/unittest.log",
+  "not_revalidated": [
+    "Windows native GUI",
+    "Kylin",
+    "portable packages",
+    "physical RS485"
+  ]
+}

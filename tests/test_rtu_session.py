@@ -159,6 +159,24 @@ class SessionTests(unittest.TestCase):
         result, peer, _ = self.exercise(duration=.1)
         self.assertEqual(peer.writes[0][1].hex(), "0110000000020400000000f3af")
 
+    def test_independent_points_keep_addresses_and_values_paired(self):
+        result, peer, events = self.exercise(duration=.8, delay=.001, readback_every=1,
+            period_ms=200, timeout_ms=170,
+            points=[dict(address=6, source=dict(value=-3.5)),
+                    dict(address=0, source=dict(kind="sine", value=10, amplitude=2, frequency_hz=1)),
+                    dict(enabled=False, address=2, source=dict(value=999)),
+                    dict(address=2, source=dict(value=12.5))])
+        self.assertEqual(result["exit_code"], 0, result)
+        self.assertEqual(result["counters"].get("readback_mismatch", 0), 0)
+        # 直接解码独立串口对端的寄存器，验证排序后没有把数据串到另一点。
+        words = peer.registers
+        self.assertEqual(struct.unpack(">f", struct.pack(">HH", words[2], words[3]))[0], 12.5)
+        self.assertEqual(struct.unpack(">f", struct.pack(">HH", words[6], words[7]))[0], -3.5)
+        self.assertNotIn(4, words)
+        samples = [e["details"]["values"] for e in events if e["code"] == "source_sample"]
+        self.assertEqual(samples[0], [-3.5, 10.0, 12.5])
+        self.assertGreater(samples[1][1], samples[0][1])
+
     def test_scheduling_tolerance_boundaries_and_continuation(self):
         for period, percent, delay_ms, warning in (
                 (100, 10, 9, False), (100, 10, 10, False),
