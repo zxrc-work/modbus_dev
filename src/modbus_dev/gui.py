@@ -20,6 +20,7 @@ from .application.session import check_capabilities
 from .domain.config import TaskConfig, load_config
 from .gui_theme import METRICS, application_palette, application_stylesheet, ui_font
 from .gui_widgets import ComboBox, WorkbenchStyle, card, label, refresh_style
+from .runtime import default_output_directory, worker_command
 
 
 CHOICE_LABELS = {
@@ -236,7 +237,7 @@ class Workbench(QMainWindow):
         location_layout.addWidget(label("结果父目录", "caption"))
         location_row = QHBoxLayout()
         location_row.setSpacing(METRICS.spacing)
-        self.output = QLineEdit(str(Path.cwd() / "results"))
+        self.output = QLineEdit(str(default_output_directory()))
         self.output.setObjectName("output")
         self.output.setAccessibleName("结果父目录")
         location_row.addWidget(self.output, 1)
@@ -459,10 +460,9 @@ class Workbench(QMainWindow):
             self.process.errorOccurred.connect(self.process_error)
             self.set_running(True)
             self.set_status("正在启动…", "active")
-            arguments = ["worker", str(path), "--output", str(self.last_output)]
-            if not getattr(sys, "frozen", False):
-                arguments = ["-m", "modbus_dev"] + arguments
-            self.process.start(sys.executable, arguments)
+            executable, arguments = worker_command(path, self.last_output)
+            # QProcess 默认不为 Windows 子进程创建新控制台；保留 stdin/stdout/stderr 管道。
+            self.process.start(executable, arguments)
         except Exception as exc:
             self.set_running(False)
             if self.temporary:

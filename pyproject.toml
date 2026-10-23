@@ -11,12 +11,21 @@ dependencies = ["pymodbus==3.11.4", "pyserial==3.5"]
 
 [project.optional-dependencies]
 gui = ["PySide6==6.7.2"]
+desktop-build = ["PySide6==6.7.2", "Cython==3.1.3", "PyInstaller==6.22.3", "setuptools==80.9.0"]
 
 [project.scripts]
 modbus-dev = "modbus_dev.cli:main"
 
 [project.gui-scripts]
-modbus-dev-gui = "modbus_dev.gui:main"
+modbus-dev-gui = "modbus_dev.desktop:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.modbus-dev.release]
+application = "ModbusDev"
+package = "modbus_dev"
+cli_executable = "modbus-dev"
+gui_executable = "ModbusDev"
+bundle_identifier = "dev.modbus.workbench"
+resources = ["examples", "docs/portable-quickstart.md"]

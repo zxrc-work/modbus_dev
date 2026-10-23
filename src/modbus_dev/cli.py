@@ -1,4 +1,4 @@
-"""Unified configuration, port discovery and single-session communication CLI."""
+"""统一配置、串口枚举、通信和发布包诊断入口；不主动加载 Qt。"""
 import argparse
 import json
 import sys
@@ -22,17 +22,27 @@ def main(argv=None):
     run.add_argument("--output", required=True, help="new result directory; existing directories are refused")
     commands.add_parser("ports", help="list serial ports without opening them")
     commands.add_parser("gui", help="open the optional desktop workbench")
+    check = commands.add_parser("self-check", help="inspect native modules in a frozen release")
+    check.add_argument("--output", required=True)
     worker = commands.add_parser("worker", help="GUI worker (versioned JSONL control on stdin/stdout)")
     worker.add_argument("config")
     worker.add_argument("--output", required=True)
     args = parser.parse_args(argv)
     try:
+        if args.command == "self-check":
+            from .selfcheck import native_check
+            return native_check(args.output)
         if args.command == "gui":
+            from .runtime import adjacent_executable, frozen
+            if frozen():
+                # 独立 GUI 引导器负责初始化 Qt；不能让 CLI/worker 的启动强制加载 QtCore。
+                import subprocess
+                return subprocess.run([str(adjacent_executable("gui_executable"))]).returncode
             try:
-                from .gui import main as gui_main
+                from .desktop import main as gui_main
             except ImportError as error:
                 raise ImportError('GUI requires PySide6: pip install -e ".[gui]"') from error
-            return gui_main()
+            return gui_main([])
         if args.command == "worker":
             from .worker import main as worker_main
             return worker_main(args.config, args.output)

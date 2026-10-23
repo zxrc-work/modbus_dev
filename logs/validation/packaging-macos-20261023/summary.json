@@ -1,0 +1,163 @@
+{
+  "status": "passed",
+  "target": "macos-arm64",
+  "archive": "ModbusDev-0.1.0-macos-arm64-331c3e73d73b.tar.gz",
+  "archive_sha256": "4c50601a9b776a75a54cc83dd767a7f743c8748ce23b1c71d65a5272636cf2d8",
+  "audit": {
+    "entrypoints": [
+      "Contents/MacOS/modbus-dev",
+      "Contents/MacOS/ModbusDev"
+    ],
+    "protected_modules": 26,
+    "native_files": 26,
+    "status": "passed"
+  },
+  "cases": [
+    "version-ports-examples-and-native-modules",
+    "worker-tcp-fc03-fc04-reject-write-invalid-address-stop",
+    "cli-same-port-restart-and-natural-end",
+    "occupied-port-failure-and-recovery",
+    "parent-pipe-closure-stops-worker",
+    "invalid-config-terminal-error",
+    "rtu-slave-pty-fc03-fc04-stop",
+    "rtu-master-pty-fc16-and-readback",
+    {
+      "name": "gui-native",
+      "cases": [
+        "tcp-read-and-graceful-stop",
+        "same-port-restart-and-natural-end",
+        "worker-crash-and-recovery",
+        "occupied-port-and-recovery",
+        "close-stops-worker"
+      ],
+      "display": {
+        "platform": "cocoa",
+        "dpr": 2.0,
+        "font": "PingFang SC",
+        "logical_size": [
+          1222,
+          840
+        ]
+      }
+    },
+    {
+      "name": "gui-offscreen",
+      "cases": [
+        "tcp-read-and-graceful-stop",
+        "same-port-restart-and-natural-end",
+        "worker-crash-and-recovery",
+        "occupied-port-and-recovery",
+        "close-stops-worker"
+      ],
+      "display": {
+        "platform": "offscreen",
+        "dpr": 1.0,
+        "font": "PingFang SC",
+        "logical_size": [
+          768,
+          752
+        ]
+      }
+    },
+    "ad-hoc-codesign-integrity-not-notarization",
+    {
+      "name": "gui-launchservices",
+      "cases": [
+        "tcp-read-and-graceful-stop",
+        "same-port-restart-and-natural-end",
+        "worker-crash-and-recovery",
+        "occupied-port-and-recovery",
+        "close-stops-worker"
+      ],
+      "display": {
+        "platform": "cocoa",
+        "dpr": 2.0,
+        "font": "PingFang SC",
+        "logical_size": [
+          1222,
+          840
+        ]
+      }
+    }
+  ],
+  "serial_validation": "isolated-pty",
+  "untested": [
+    "物理串口/RS485 与真实设备",
+    "长期压力",
+    "外部网络",
+    "第三方电脑的系统安全策略"
+  ],
+  "archive_bytes": 40530372,
+  "build": {
+    "version": "0.1.0",
+    "built_at": "2026-10-23T01:55:14.890198+00:00",
+    "built_on": "macOS-27.0.1-arm64-arm-64bit",
+    "commit": "5af4e6f96e4134dcffe150183b0928247438fb4e",
+    "dirty": true,
+    "source_sha256": "331c3e73d73ba6b2874e6b7e51b7c1a05e88884830fba2207fb857be23f057c9",
+    "python": "3.12.11 (main, Aug  7 2025, 21:42:54) [Clang 17.0.0 (clang-1700.0.13.5)]",
+    "dependencies": {
+      "PySide6_Essentials": "6.7.2",
+      "pyinstaller-hooks-contrib": "2026.9",
+      "packaging": "26.3",
+      "altgraph": "0.17.5",
+      "PySide6": "6.7.2",
+      "pymodbus": "3.11.4",
+      "shiboken6": "6.7.2",
+      "pip": "25.0.1",
+      "pyinstaller": "6.22.3",
+      "setuptools": "80.9.0",
+      "macholib": "1.16.4",
+      "pyserial": "3.5",
+      "Cython": "3.1.3",
+      "PySide6_Addons": "6.7.2"
+    },
+    "compiled_modules": [
+      "modbus_dev.application.control",
+      "modbus_dev.application.metrics",
+      "modbus_dev.application.session",
+      "modbus_dev.application.slave",
+      "modbus_dev.application.timing",
+      "modbus_dev.cli",
+      "modbus_dev.desktop",
+      "modbus_dev.domain.config",
+      "modbus_dev.domain.events",
+      "modbus_dev.domain.mapping",
+      "modbus_dev.domain.transactions",
+      "modbus_dev.domain.wire",
+      "modbus_dev.engines.platform",
+      "modbus_dev.engines.read_only",
+      "modbus_dev.engines.rtu",
+      "modbus_dev.engines.rtu_slave",
+      "modbus_dev.engines.tcp_slave",
+      "modbus_dev.gui",
+      "modbus_dev.gui_theme",
+      "modbus_dev.gui_widgets",
+      "modbus_dev.reporting.journal",
+      "modbus_dev.reporting.segments",
+      "modbus_dev.runtime",
+      "modbus_dev.selfcheck",
+      "modbus_dev.sources.synthetic",
+      "modbus_dev.worker"
+    ],
+    "signing": "ad-hoc; no Developer ID or notarization"
+  },
+  "regression": {
+    "source": {
+      "collected": 114,
+      "passed": 113,
+      "skipped": 1,
+      "skip": "Windows native DPI only"
+    },
+    "compiled": {
+      "collected": 114,
+      "passed": 113,
+      "skipped": 1,
+      "skip": "Windows native DPI only"
+    }
+  },
+  "evidence": {
+    "evidence": "results/release-macos-arm64-20261023-095535-321654",
+    "build_evidence": "build/releases/macos-arm64-w0fxntki"
+  }
+}

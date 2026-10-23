@@ -12,7 +12,8 @@ RTU 主站 FC16 发数、常量/正弦源、FC03/04 读回验证、连续/严格
 绝对周期调度、停止与重连、原始报文及有界异步日志。CLI 和 GUI 共用 SessionRunner。
 RTU/TCP 只读从站支持常量/正弦、FC03/04、独立数据时钟和完整 float32 快照；其他请求功能码被拒绝。
 PySide6 单会话 GUI 已实现配置编辑/加载/保存、启动/停止、状态、计数、日志预览和结果目录。
-**独立安装包尚未交付。DYN/CSV 离线输入继续暂缓。validate 只校验配置，不代表功能已可运行。**
+**macOS arm64 已完成 Cython 目录式便携包及本机实包验收；Windows x64 / 麒麟 x86_64
+仅有构建适配，待对应电脑验收。DYN/CSV 离线输入继续暂缓。validate 只校验配置，不代表功能已可运行。**
 
 ```sh
 python -m pip install -e .
@@ -50,11 +51,12 @@ GUI 依赖可选，锁定 PySide6 6.7.2；普通 CLI 安装不需要 Qt。
 “数据与时序 → 日志保留”可配置分片数量，默认最多 100 片（包含当前文件），每片不超过 32 MiB。
 超限删除最旧分片；历史淘汰、日志队列丢失和界面预览丢失分别展示，不把滚动窗口宣称为完整会话证据。
 界面预览丢失与原始日志丢失分别计数。最终性能统计保存在 summary.json，并显示于结束日志。
-本轮 87 项测试通过，验证 Windows 原生高 DPI/字体、Qt 离屏渲染、工作进程和本机 TCP 读数；
-覆盖 100%～200% 及当前 300% 缩放，跨显示器拖动、麒麟桌面和安装包待验收。GUI 虚拟串口联调结果见最新通信验证记录。
+此前 Windows GUI 阶段 87 项测试通过，验证原生高 DPI/字体、Qt 离屏渲染、工作进程和本机 TCP 读数；
+覆盖 100%～200% 及当时 300% 缩放；该轮属于源码验证，跨显示器拖动、麒麟桌面和 Windows 发布包仍待验收。
+最新 macOS 便携包状态见下节，GUI 虚拟串口联调结果见通信验证记录。
 
 开发基线 Python 3.10+；锁定 PyModbus 3.11.4 和 pySerial 3.5，CLI 不需要 Qt。
-本轮 Windows 和麒麟均使用 Python 3.12.14 验证；未在系统 Python 3.7 上运行新包。
+此前 Windows / 麒麟源码验证的具体 Python、Qt 版本见对应归档；未在系统 Python 3.7 上运行新包。
 示例 COM11 仅为演示值，validate 不打开串口，run 会打开指定串口。
 Linux 使用自己的设备路径；源码不限制 GUI 平台，发布包需要分平台构建验证。
 
@@ -72,6 +74,22 @@ RTU 从站使用相同点表和只读规则；广播及其他站号静默忽略�
 持续策略下串口打开失败、读写异常或短写至少间隔 1 秒重连；严格策略遇到这些故障停止。
 重连不重置数据时钟；无轮询时数据也继续更新。timeout_ms 限制从站单次写等待（另有 50ms 上限），
 不是主站等待回复的超时；接收等待最多 10ms，并受下一数据更新时间约束。
+
+## 目录式便携包
+
+macOS arm64 已生成无需安装 Python 的目录式便携包，产物在 `dist/`。
+完整解压 `.tar.gz` 后打开 `ModbusDev.app`；CLI 为
+`ModbusDev.app/Contents/MacOS/modbus-dev`。两个入口共享包内运行时，GUI 经独立 CLI worker 通信。
+GUI 的结果和启动诊断默认写入用户数据目录，不修改应用包。
+
+所有 26 个应用模块经 Cython 编译。源码与编译后各收集 114 项回归，均通过 113 项、跳过
+1 项 Windows 专属测试；实际归档解压后验证 TCP、隔离 PTY RTU 主从站、停止与异常恢复，
+GUI 覆盖原生 Cocoa、离屏和 LaunchServices 应用包启动。Windows / 麒麟发布包尚未实测。
+当前仅使用 ad-hoc 签名，未做 Developer ID 签名和公证，不等于已完成异机外部分发验收。
+
+- [构建步骤、入口与平台验收边界](docs/packaging.md)
+- [便携版使用说明](docs/portable-quickstart.md)
+- [本轮 macOS 实包验收记录](logs/validation/packaging-macos-20261023.md)
 
 ## 运行结果
 
@@ -119,4 +137,5 @@ RTU 超时后无法仅凭相同 ACK 确认属于哪次请求，因此后续有�
 
 - [最新 Windows / 麒麟实际通信验证](logs/validation/validation-20261023.md)
 - [macOS Apple Silicon 实际通信与原生 GUI 验证](logs/validation/validation-macos-20261023.md)
+- [macOS arm64 Cython 便携包实包验收](logs/validation/packaging-macos-20261023.md)
 - [M2 历史验证记录](logs/validation/validation-m2.md)
