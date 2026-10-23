@@ -2,6 +2,8 @@
 
 独立的 Modbus 通信测试与回放工具，当前正在按阶段实施。
 
+- [用户手册与常见场景](docs/user-manual.md)
+- [Modbus RTU 基本概念](docs/modbus-basics.md)
 - [需求](docs/requirements.md)
 - [架构设计](docs/design.md)
 - [实施状态与验证计划](docs/implementation.md)
