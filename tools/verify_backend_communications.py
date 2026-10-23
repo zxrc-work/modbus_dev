@@ -1,8 +1,4 @@
-"""Opt-in CLI/worker integration tests against independent serial and TCP peers.
-
-Windows requires an existing virtual COM pair. POSIX uses an isolated PTY.
-No application protocol codecs are imported by the test peer.
-"""
+"""用独立字节对端验证 CLI/worker 通信；Windows 使用虚拟串口对，POSIX 使用隔离 PTY。"""
 import argparse
 import importlib.metadata
 import json
@@ -19,6 +15,7 @@ import traceback
 import serial
 from serial.tools.list_ports import comports
 from verify_virtual_serial import PtyPeer, frame as rtu_frame
+from modbus_dev.reporting.segments import event_paths
 
 
 def save(path, value):
@@ -51,15 +48,17 @@ class Backend:
         self.stop_latency_ms = None
 
     def events(self):
-        path = self.folder / "run/events.jsonl"
-        if not path.exists():
-            return []
         result = []
-        for line in path.read_text(encoding="utf-8").splitlines():
+        for path in event_paths(self.folder / "run"):
             try:
-                result.append(json.loads(line))
-            except json.JSONDecodeError:
-                pass  # The writer may still be finishing its latest line.
+                lines = path.read_text(encoding="utf-8").splitlines()
+            except FileNotFoundError:
+                continue  # 轮转可能在枚举后淘汰旧分片，不影响剩余证据读取。
+            for line in lines:
+                try:
+                    result.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass  # 当前分片末行可能尚未写完。
         return result
 
     def started(self):

@@ -1,8 +1,6 @@
-"""Bounded TCP transport using the pinned PyModbus ADU and PDU codecs.
-
-One event loop owns clients and snapshots. No datastore write path exists.
-"""
+"""有界 TCP 只读传输；单事件循环维护客户端和快照，协议编码复用 PyModbus。"""
 from dataclasses import dataclass, field
+import os
 import selectors
 import socket
 
@@ -36,6 +34,9 @@ class TcpSlaveEngine(ReadOnlyRegisters):
         self.listener = listener
         if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
             listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        elif os.name == "posix":
+            # 允许正常关闭后的同端口重启；不启用 SO_REUSEPORT，不共享活动监听端口。
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         listener.bind((self.config.host, self.config.port))
         listener.listen(self.MAX_CLIENTS)
         listener.setblocking(False)

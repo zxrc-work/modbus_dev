@@ -1,8 +1,4 @@
-"""Nonblocking event submission with a dedicated, bounded file writer.
-
-The first implementation uses strict evidence retention: stop at a size limit,
-never overwrite earlier records. Engines must monitor failed and stop the task.
-"""
+"""非阻塞事件队列与独立日志线程；按文件大小分片、有界保留并显式记录历史淘汰。"""
 from collections import Counter
 from datetime import datetime, timezone
 import json
@@ -13,6 +9,8 @@ import time
 import uuid
 
 from ..domain.events import Event
+from ..domain.config import LoggingConfig
+from .segments import MAX_SEGMENT_BYTES, SegmentedEventWriter
 
 
 class LogWriteError(RuntimeError):
@@ -23,9 +21,11 @@ class Journal:
     MAX_EVENT_BYTES = 32768
 
     def __init__(self, directory, config, *, capacity=8192, flush_interval=.2,
-                 max_bytes=32 * 1024 * 1024, opener=None):
+                 max_bytes=MAX_SEGMENT_BYTES, opener=None):
         if capacity < 1 or flush_interval <= 0 or max_bytes < 1:
             raise ValueError("Invalid journal bounds")
+        logging = LoggingConfig(**config.get("logging", {}))
+        logging.validate()
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=False)
         (self.directory / "config.json").write_text(
@@ -37,13 +37,14 @@ class Journal:
         self.failed = threading.Event()
         self._error = None
         self._closed = False
-        self._sequence = self._written = self._bytes = 0
+        self._sequence = self._written = 0
         self._dropped = Counter()
         self._first_dropped = self._last_dropped = None
         self._last_error = None
         self._reported_drops = 0
-        self._flush_interval, self._max_bytes = flush_interval, max_bytes
-        self._output = (opener or (lambda p: p.open("xb")))(self.directory / "events.jsonl")
+        self._flush_interval = flush_interval
+        self._segments = SegmentedEventWriter(self.directory, max_bytes=max_bytes,
+                                              max_files=logging.max_files, opener=opener)
         self._thread = threading.Thread(target=self._write, name="modbus-journal", daemon=True)
         self._thread.start()
 
@@ -70,7 +71,7 @@ class Journal:
                 self._drop(event.level, sequence)
                 return False
             try:
-                self._queue.put_nowait(encoded)
+                self._queue.put_nowait((sequence, encoded))
                 return True
             except queue.Full:
                 self._drop(event.level, sequence)
@@ -82,46 +83,47 @@ class Journal:
             self._first_dropped = sequence
         self._last_dropped = sequence
 
-    def snapshot(self):
+    def snapshot(self, *, include_files=False):
         with self._lock:
-            return dict(session_id=self.session_id, submitted=self._sequence, written=self._written,
+            result = dict(session_id=self.session_id, submitted=self._sequence, written=self._written,
                         dropped=sum(self._dropped.values()), dropped_by_level=dict(self._dropped),
                         first_dropped_sequence=self._first_dropped, last_dropped_sequence=self._last_dropped,
                         last_error=self._last_error, log_error=self._error,
                         evidence_complete=not self._dropped and not self.failed.is_set(),
                         pending=self._queue.qsize())
+        # 分片锁不与生产者锁嵌套；任何文件操作都不能反向阻塞通信线程入队。
+        result["segments"] = self._segments.snapshot(include_files=include_files)
+        result["retention_truncated"] = bool(result["segments"]["deleted_files"])
+        result["evidence_complete"] &= not result["retention_truncated"]
+        return result
 
     def _write(self):
         flushed = time.perf_counter()
         try:
             while not self._closing.is_set() or not self._queue.empty():
                 try:
-                    encoded = self._queue.get(timeout=min(.05, self._flush_interval))
+                    item = self._queue.get(timeout=min(.05, self._flush_interval))
                 except queue.Empty:
-                    encoded = None
-                if encoded is not None:
-                    if self._bytes + len(encoded) > self._max_bytes:
-                        raise OSError("Evidence size limit reached; existing records preserved")
-                    size = self._output.write(encoded)
-                    if size != len(encoded):
-                        raise OSError("Short event log write")
+                    item = None
+                if item is not None:
+                    sequence, encoded = item
+                    self._segments.write(encoded, sequence=sequence)
                     with self._lock:
                         self._written += 1
-                        self._bytes += size
                 now = time.perf_counter()
                 if now - flushed >= self._flush_interval:
                     self._write_gap()
-                    self._output.flush()
+                    self._segments.flush()
                     flushed = now
             self._write_gap()
-            self._output.flush()
+            self._segments.flush()
         except Exception as error:
             with self._lock:
                 self._error = f"{type(error).__name__}: {error}"
                 self.failed.set()
         finally:
             try:
-                self._output.close()
+                self._segments.close()
             except Exception as error:
                 with self._lock:
                     self._error = f"{type(error).__name__}: {error}"
@@ -140,11 +142,7 @@ class Journal:
                       details={key: snapshot[key] for key in ("dropped", "dropped_by_level",
                                "first_dropped_sequence", "last_dropped_sequence")})
         encoded = (json.dumps(record, ensure_ascii=False) + "\n").encode("utf-8")
-        if self._bytes + len(encoded) > self._max_bytes:
-            raise OSError("Evidence size limit reached while recording log gap")
-        if self._output.write(encoded) != len(encoded):
-            raise OSError("Short log gap write")
-        self._bytes += len(encoded)
+        self._segments.write(encoded)
         self._reported_drops = snapshot["dropped"]
 
     def close(self, timeout=3, run_summary=None):
@@ -154,7 +152,7 @@ class Journal:
             self.failed.set()
             raise LogWriteError("Log writer did not finish before shutdown deadline")
         self._closed = True
-        summary = self.snapshot()
+        summary = self.snapshot(include_files=True)
         if run_summary is not None:
             summary["run"] = dict(run_summary)
             if self.failed.is_set():

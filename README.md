@@ -46,7 +46,9 @@ GUI 依赖可选，锁定 PySide6 6.7.2；普通 CLI 安装不需要 Qt。
 关闭窗口会先请求工作进程收尾；超过 5 秒强制结束并标记证据可能不完整。
 工作进程崩溃时显示异常，已有结果目录另存 gui-worker-error.json，不伪造正常摘要。
 
-界面只显示最多 5 Hz 的状态和批量日志预览，最多保留 2000 行；完整报文仍写 events.jsonl。
+界面只显示最多 5 Hz 的状态和批量日志预览，最多保留 2000 行；原始报文写入 `events*.jsonl` 分片。
+“数据与时序 → 日志保留”可配置分片数量，默认最多 100 片（包含当前文件），每片不超过 32 MiB。
+超限删除最旧分片；历史淘汰、日志队列丢失和界面预览丢失分别展示，不把滚动窗口宣称为完整会话证据。
 界面预览丢失与原始日志丢失分别计数。最终性能统计保存在 summary.json，并显示于结束日志。
 本轮 87 项测试通过，验证 Windows 原生高 DPI/字体、Qt 离屏渲染、工作进程和本机 TCP 读数；
 覆盖 100%～200% 及当前 300% 缩放，跨显示器拖动、麒麟桌面和安装包待验收。GUI 虚拟串口联调结果见最新通信验证记录。
@@ -84,10 +86,27 @@ RTU 从站使用相同点表和只读规则；广播及其他站号静默忽略�
 
 Ctrl+C 请求停止并收尾。退出码：0 按策略完成，1 运行失败，2 配置/依赖错误，130 用户停止。
 连续模式允许通信异常，退出码 0 不代表全部交易成功，需查看 counters 和 ack_correlation_uncertain。
-输出目录含 config.json、events.jsonl、summary.json；命令结束后 stdout 输出结果 JSON。
+输出目录含 config.json、events.jsonl / events-000002.jsonl 等分片、summary.json；命令结束后 stdout 输出结果 JSON。
 原始收发、警告、错误及堆栈写入事件文件，通信线程不等待磁盘写入。
-队列溢出记录丢失数量和序号范围，并将 evidence_complete 标记为 false；写入失败或达到 32 MiB 上限会停止任务。
-日志轮转在后续阶段实现；GUI 已提供限流预览。
+队列溢出记录丢失数量和序号范围，并将 evidence_complete 标记为 false。
+达到单片 32 MiB 时自动切换新片，不再因此停止任务；超出保留数量时删除最旧分片，
+摘要单独记录淘汰的文件数、记录数、生产者序号范围和当前文件索引，并标记 retention_truncated=true、evidence_complete=false。
+历史淘汰本身不使会话失败；文件创建、写入、刷新、关闭或淘汰删除失败仍会停止任务，避免静默丢证据或超出磁盘保留上限。
+默认日志窗口最多约 3.125 GiB（不含配置和摘要）；限制只针对单个会话，旧会话结果目录不会自动删除。
+
+旧配置无需修改，新配置可通过 JSON 或 GUI 设置保留数量（1～10000）：
+
+```json
+{
+  "mode": "tcp-slave",
+  "duration_s": 0,
+  "logging": {"max_files": 100}
+}
+```
+
+读取整份保留日志时应按序号合并所有分片，可复用 `modbus_dev.reporting.segments.event_paths(directory)`。
+首个 `events.jsonl` 可能已淘汰，不能只读取该文件。实时状态只传固定大小统计，最终 `summary.json` 的
+`segments.files` 保存当前保留分片的名称、字节数、记录数及生产者序号范围；队列丢失仍使用原有 `dropped` 计数。
 RTU 超时后无法仅凭相同 ACK 确认属于哪次请求，因此后续有效回复保守标记 ambiguous；重连不会清除此状态。
 
 - [协议库选型与边界](docs/pymodbus-evaluation.md)

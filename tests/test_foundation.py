@@ -1,3 +1,4 @@
+"""验证配置边界、绝对调度和日志证据的基础约束。"""
 import contextlib
 import io
 import json
@@ -22,6 +23,18 @@ class ConfigTests(unittest.TestCase):
     def test_roundtrip(self):
         config = TaskConfig.from_mapping(mapping())
         self.assertEqual(config, TaskConfig.from_mapping(json.loads(json.dumps(config.to_mapping()))))
+
+    def test_logging_defaults_limits_and_roundtrip(self):
+        self.assertEqual(TaskConfig.from_mapping(mapping()).logging.max_files, 100)
+        for count in (1, 3, 100, 10000):
+            config = TaskConfig.from_mapping(mapping(logging=dict(max_files=count)))
+            self.assertEqual(config.logging.max_files, count)
+            self.assertEqual(config, TaskConfig.from_mapping(config.to_mapping()))
+        for value in (0, -1, 10001, True, 1.5, "100", None):
+            with self.subTest(value=value), self.assertRaises(ConfigurationError):
+                TaskConfig.from_mapping(mapping(logging=dict(max_files=value)))
+        with self.assertRaises(ConfigurationError):
+            TaskConfig.from_mapping(mapping(logging=dict(max_fiels=100)))
 
     def test_turnaround_is_part_of_transaction_budget(self):
         for timeout in (22, 25):

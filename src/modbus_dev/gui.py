@@ -1,4 +1,4 @@
-"""Optional PySide6 single-session workbench; communication stays in a worker."""
+"""可选 PySide6 单会话工作台；通信留在工作进程，配置与日志状态共用业务模型。"""
 from datetime import datetime
 import json
 import os
@@ -177,6 +177,11 @@ class Workbench(QMainWindow):
                                 ("duration_s", "运行时长 s", None)])
         self.fields["duration_s"].setToolTip("0 表示持续运行，直到手动停止。")
         self.fields["duration_s"].setPlaceholderText("0 = 持续运行")
+        retention = group(data, "日志保留", [("logging.max_files", "最多保留分片", None)])
+        self.fields["logging.max_files"].setToolTip("1～10000，包含当前文件；每片不超过 32 MiB，超限删除最旧分片。")
+        retention_note = label("每片最多 32 MiB；仅保留最新分片，淘汰历史后会标明证据不完整。", "caption")
+        retention_note.setWordWrap(True)
+        retention.layout().addRow(retention_note)
         self.master_box = group(data, "主站读回与调度", [("readback_every", "读回间隔 / 周期", None),
                                                       ("read_function", "读回功能码", ["3", "4"]),
                                                       ("schedule_tolerance_percent", "调度容差 %", None)])
@@ -309,7 +314,8 @@ class Workbench(QMainWindow):
 
     def configuration(self):
         data = json.loads(json.dumps(self.base_config))
-        integers = {"unit", "port", "period_ms", "timeout_ms", "readback_every", "read_function", "serial.baud", "serial.stop_bits"}
+        integers = {"unit", "port", "period_ms", "timeout_ms", "readback_every", "read_function",
+                    "serial.baud", "serial.stop_bits", "logging.max_files"}
         floats = {"duration_s", "schedule_tolerance_percent", "source.value", "source.amplitude", "source.frequency_hz"}
         for key in self.fields:
             value = self.text(key)
@@ -507,8 +513,18 @@ class Workbench(QMainWindow):
         counters = packet.get("counters", {})
         self.show_counters(counters)
         recording = packet.get("recording", {})
-        self.recording.setText(f"日志证据：{'完整' if recording.get('evidence_complete') else '未就绪 / 不完整'}  ·  "
-                               f"丢失 {recording.get('dropped', 0)}  ·  界面预览丢失 {packet.get('preview_dropped', 0)}")
+        self.show_recording(recording)
+
+    def show_recording(self, recording):
+        """历史淘汰、队列丢失和界面预览丢失分别显示，不能把滚动历史当完整会话。"""
+        segments = recording.get("segments", {})
+        retained = segments.get("retained_files", 0)
+        deleted = segments.get("deleted_files", 0)
+        state = "完整" if recording.get("evidence_complete") else "未就绪 / 不完整"
+        if recording.get("retention_truncated"):
+            state = f"不完整 · 历史已淘汰 {deleted} 片，保留最新 {retained} 片"
+        self.recording.setText(f"日志证据：{state}  ·  队列丢失 {recording.get('dropped', 0)}  ·  "
+                               f"界面预览丢失 {self.preview_dropped}")
 
     def show_counters(self, counters):
         self.last_counters = dict(counters)
@@ -576,7 +592,7 @@ class Workbench(QMainWindow):
             self.logs.appendPlainText(json.dumps(self.result, ensure_ascii=False, indent=2))
             try:
                 summary = json.loads((self.last_output / "summary.json").read_text(encoding="utf-8"))
-                self.recording.setText("日志证据：" + ("完整" if summary.get("evidence_complete") else "不完整"))
+                self.show_recording(summary)
             except (OSError, ValueError):
                 self.recording.setText("日志证据：无摘要文件")
         if self.stderr:

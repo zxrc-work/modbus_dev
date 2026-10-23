@@ -1,4 +1,4 @@
-"""Independent wire peer; never use the production CRC/encoder as the oracle."""
+"""用独立字节对端验证 RTU 交易、调度、异常恢复及日志轮转期间的持续通信。"""
 import io
 import json
 from pathlib import Path
@@ -15,6 +15,7 @@ from modbus_dev.domain.mapping import write_requests
 from modbus_dev.domain.transactions import Request, StopRequested
 from modbus_dev.engines.rtu import RtuEngine
 from modbus_dev.reporting.journal import Journal
+from modbus_dev.reporting.segments import event_paths
 
 
 def frame(data):
@@ -119,20 +120,32 @@ def config(**kwargs):
 
 
 class SessionTests(unittest.TestCase):
-    def exercise(self, actions=(), *, duration=.4, delay=.035, stop_at=None, setup=None, **options):
+    def exercise(self, actions=(), *, duration=.4, delay=.035, stop_at=None, setup=None,
+                 journal_factory=Journal, **options):
         clock = FakeControl(stop_at)
         peer = Peer(clock, actions, delay)
         settings = TaskConfig.from_mapping(dict(serial=dict(port="TEST"), duration_s=duration, **options))
         factory = (setup(clock, peer) if setup else lambda _: peer)
         with tempfile.TemporaryDirectory() as root:
             runner = SessionRunner(settings, Path(root) / "run", control=clock,
-                                   engine_factory=lambda c, t, e: RtuEngine(c, t, e, factory))
+                                   engine_factory=lambda c, t, e: RtuEngine(c, t, e, factory),
+                                   journal_factory=journal_factory)
             result = runner.run()
             summary = json.loads((runner.directory / "summary.json").read_text(encoding="utf-8"))
-            events = [json.loads(s) for s in (runner.directory / "events.jsonl").read_text(encoding="utf-8").splitlines()]
+            events = [json.loads(line) for path in event_paths(runner.directory)
+                      for line in path.read_text(encoding="utf-8").splitlines()]
         self.assertEqual(summary["run"]["exit_code"], result["exit_code"])
         self.assertTrue(peer.closed)
         return result, peer, events
+
+    def test_log_retention_does_not_stop_communication(self):
+        # 缩小分片触发多次淘汰，但生产通信路径与正常会话完全相同。
+        result, peer, events = self.exercise(duration=1, delay=.005, logging=dict(max_files=2),
+            journal_factory=lambda directory, config: Journal(directory, config, max_bytes=2048))
+        self.assertEqual(result["exit_code"], 0, result)
+        self.assertEqual(result["counters"]["ack"], 10)
+        self.assertEqual(len(peer.writes), 10)
+        self.assertGreater(events[0]["sequence"], 1)
 
     def test_100_and_200ms_absolute_schedule(self):
         for period, count in ((100, 4), (200, 2)):

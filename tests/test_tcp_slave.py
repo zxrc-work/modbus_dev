@@ -1,6 +1,7 @@
-"""Independent TCP wire client: expected frames do not use PyModbus codecs."""
+"""使用独立 TCP 字节对端验证协议、资源释放和同端口重启。"""
 from dataclasses import replace
 import json
+import os
 from pathlib import Path
 import socket
 import struct
@@ -10,6 +11,7 @@ import time
 import unittest
 
 from modbus_dev.application.session import SessionRunner
+from modbus_dev.application.control import Control
 from modbus_dev.domain.config import TaskConfig
 from modbus_dev.engines.tcp_slave import TcpSlaveEngine
 
@@ -129,8 +131,42 @@ class TcpSlaveTests(unittest.TestCase):
         with self.assertRaises(OSError):
             socket.create_connection(self.engine.bound_address, timeout=.2)
 
+    @unittest.skipUnless(os.name == "posix", "验证 POSIX 主动关闭后的同端口重启")
+    def test_connected_client_stop_allows_immediate_restart(self):
+        self.request(b"\x03\x00\x00\x00\x02")
+        address = self.engine.bound_address
+        # 客户端保持连接，由服务端先关闭，以覆盖旧用例遗漏的连接状态。
+        self.stop.set()
+        self.thread.join(3)
+        self.assertFalse(self.thread.is_alive())
+        self.assertEqual(self.client.recv(1), b"")
+        self.client.close()
+
+        config = replace(self.runner.config, host=address[0], port=address[1], duration_s=.1)
+        restarted = SessionRunner(config, Path(self.root.name) / "restarted")
+        result = restarted.run()
+        self.assertEqual(result["exit_code"], 0, result)
+        self.assertEqual(result["counters"]["listener_opens"], 1)
+
 
 class TcpLifecycleTests(unittest.TestCase):
+    def test_address_reuse_cannot_share_an_active_listener(self):
+        config = TaskConfig.from_mapping(dict(mode="tcp-slave"))
+        first = TcpSlaveEngine(replace(config, port=0), Control(), lambda event: None)
+        second = None
+        try:
+            first.connect()
+            address = first.bound_address
+            second = TcpSlaveEngine(replace(config, host=address[0], port=address[1]),
+                                    Control(), lambda event: None)
+            # 重启复用不能演变成两个实例同时监听同一地址。
+            with self.assertRaises(OSError):
+                second.connect()
+        finally:
+            if second:
+                second.close()
+            first.close()
+
     def test_bind_failure_is_recorded_and_releases_session_lock(self):
         with socket.socket() as occupied, tempfile.TemporaryDirectory() as root:
             occupied.bind(("127.0.0.1", 0))

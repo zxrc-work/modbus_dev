@@ -1,4 +1,4 @@
-"""Worker subprocess protocol and optional offscreen Qt lifecycle verification."""
+"""验证工作进程协议、日志保留配置和可选 Qt 界面的完整生命周期。"""
 import importlib.util
 import json
 import os
@@ -155,9 +155,30 @@ class GuiTests(unittest.TestCase):
             config = TaskConfig.from_mapping(dict(mode=mode, serial=dict(port="TEST"),
                                                  source=dict(kind="sine", value=2), addresses=[0, 4],
                                                  period_ms=200, timeout_ms=150,
+                                                 logging=dict(max_files=7),
                                                  readback_every=2 if mode == "rtu-master" else 0))
             self.window.apply_config(config)
             self.assertEqual(self.window.configuration(), config)
+
+    def test_retention_and_queue_loss_are_displayed_separately(self):
+        self.window.show_recording(dict(evidence_complete=False, retention_truncated=True,
+            dropped=0, segments=dict(deleted_files=3, retained_files=2)))
+        self.assertIn("不完整", self.window.recording.text())
+        self.assertIn("历史已淘汰 3 片", self.window.recording.text())
+        self.assertIn("保留最新 2 片", self.window.recording.text())
+        self.assertIn("队列丢失 0", self.window.recording.text())
+
+    def test_retention_configuration_reaches_worker(self):
+        self.window.fields["logging.max_files"].setText("2")
+        self.window.fields["duration_s"].setText("0.25")
+        self.window.start()
+        self.wait_for(lambda: self.window.temporary is None)
+        self.assertEqual(self.window.result["exit_code"], 0)
+        folder = self.window.last_output
+        config = json.loads((folder / "config.json").read_text(encoding="utf-8"))
+        summary = json.loads((folder / "summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(config["logging"]["max_files"], 2)
+        self.assertEqual(summary["segments"]["max_files"], 2)
 
     def test_mode_and_source_choices_keep_protocol_values(self):
         from PySide6.QtCore import Qt

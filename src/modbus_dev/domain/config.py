@@ -1,4 +1,4 @@
-"""Versioned configuration. CLI and future GUI use the same validation."""
+"""版本化配置模型；CLI、GUI 和日志保留策略共用校验。"""
 from dataclasses import asdict, dataclass, field
 import json
 import math
@@ -99,6 +99,15 @@ class SourceConfig:
 
 
 @dataclass(frozen=True)
+class LoggingConfig:
+    max_files: int = 100
+
+    def validate(self):
+        # 数量包含当前写入分片，限制元数据规模，避免配置导致无界内存增长。
+        number(self.max_files, "logging.max_files", 1, 10000, True)
+
+
+@dataclass(frozen=True)
 class TaskConfig:
     schema_version: int = 1
     mode: str = "rtu-master"
@@ -116,12 +125,14 @@ class TaskConfig:
     source: SourceConfig = field(default_factory=SourceConfig)
     host: str = "127.0.0.1"
     port: int = 1502
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
 
     @classmethod
     def from_mapping(cls, data):
         data = dict(section(data, "config", cls.__dataclass_fields__))
         serial = section(data.pop("serial", {}), "serial", SerialConfig.__dataclass_fields__)
         source = dict(section(data.pop("source", {}), "source", SourceConfig.__dataclass_fields__))
+        logging = section(data.pop("logging", {}), "logging", LoggingConfig.__dataclass_fields__)
         channels = source.get("channels", [])
         if not isinstance(channels, (list, tuple)) or any(not isinstance(c, str) for c in channels):
             fail("source.channels", "must be an array of strings")
@@ -130,7 +141,8 @@ class TaskConfig:
         if not isinstance(addresses, (list, tuple)):
             fail("addresses", "must be an array")
         data["addresses"] = tuple(addresses)
-        result = cls(**data, serial=SerialConfig(**serial), source=SourceConfig(**source))
+        result = cls(**data, serial=SerialConfig(**serial), source=SourceConfig(**source),
+                     logging=LoggingConfig(**logging))
         result.validate()
         return result
 
@@ -158,6 +170,7 @@ class TaskConfig:
         text(self.host, "host")
         number(self.port, "port", 1, 65535, True)
         self.source.validate(self.period_ms, len(self.addresses))
+        self.logging.validate()
         if self.mode != "rtu-master" and self.readback_every:
             fail("readback_every", "readback is only supported in RTU master mode")
         if self.mode == "rtu-master":

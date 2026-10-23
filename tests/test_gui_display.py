@@ -1,4 +1,4 @@
-"""Exercise real Windows DPI separately from offscreen GUI lifecycle tests."""
+"""验证小屏滚动配置可达性，并将 Windows 原生 DPI 检查与离屏生命周期分开。"""
 import importlib.util
 import json
 import os
@@ -41,11 +41,13 @@ for tab in range(window.config_tabs.count()):
     window.config_tabs.setCurrentIndex(tab)
     app.processEvents()
     scroll = window.config_tabs.widget(tab)
-    field = window.fields['addresses' if tab == 0 else 'duration_s']
-    scroll.ensureWidgetVisible(field)
-    app.processEvents()
-    position = field.mapTo(scroll.viewport(), field.rect().center())
-    assert scroll.viewport().rect().contains(position)
+    keys = ['addresses'] if tab == 0 else ['duration_s', 'logging.max_files']
+    for key in keys:
+        field = window.fields[key]
+        scroll.ensureWidgetVisible(field)
+        app.processEvents()
+        position = field.mapTo(scroll.viewport(), field.rect().center())
+        assert scroll.viewport().rect().contains(position)
 window.runtime_scroll.ensureWidgetVisible(window.start_button)
 app.processEvents()
 position = window.start_button.mapTo(window.runtime_scroll.viewport(), window.start_button.rect().center())
