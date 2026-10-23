@@ -1,0 +1,606 @@
+{
+  "date": "2026-10-23",
+  "status": "passed",
+  "environment": {
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "machine": "arm64",
+    "python": "3.12.11 (main, Aug  7 2025, 21:42:54) [Clang 17.0.0 (clang-1700.0.13.5)]",
+    "executable": "/Users/zhengxu/Desktop/some_code/my-personal-git/modbus_dev/.venv/bin/python",
+    "tested_commit": "4e09bc0afa809c671a6a0c6c17936289a6e28984",
+    "dependencies": {
+      "pymodbus": "3.11.4",
+      "pyserial": "3.5",
+      "PySide6": "6.7.2"
+    }
+  },
+  "unit_tests": {
+    "collected": 87,
+    "passed": 86,
+    "skipped": 1,
+    "elapsed_s": 10.72,
+    "status": "passed",
+    "evidence": "results/validation-20261023-macos-4e09bc0/unittest.log"
+  },
+  "native_gui_tests": {
+    "collected": 15,
+    "passed": 15,
+    "skipped": 0,
+    "elapsed_s": 6.298,
+    "status": "passed",
+    "evidence": "results/validation-20261023-macos-4e09bc0/gui-native-unittest.log"
+  },
+  "integration_case_count": 17,
+  "matrices": {
+    "rtu-master": {
+      "status": "passed",
+      "cases": [
+        {
+          "name": "100ms",
+          "status": "passed",
+          "exit_code": 0,
+          "counters": {
+            "port_opens": 1,
+            "write_attempts": 100,
+            "ack": 100
+          },
+          "cycle_metrics": {
+            "cycle_interval_ms": {
+              "count": 99,
+              "mean": 100.0084675959596,
+              "min": 96.95195899996634,
+              "max": 103.17458300005455,
+              "stddev": 1.581262802323158,
+              "p95_upper_ms": 102.9,
+              "p99_upper_ms": 103.2
+            },
+            "cycle_lateness_ms": {
+              "count": 100,
+              "mean": 2.205385279992243,
+              "min": 0.42174999998678686,
+              "max": 4.790041999967798,
+              "stddev": 1.0625344643530197,
+              "p95_upper_ms": 4.3,
+              "p99_upper_ms": 4.8
+            }
+          }
+        },
+        {
+          "name": "100ms-four-points",
+          "status": "passed",
+          "exit_code": 0,
+          "counters": {
+            "port_opens": 1,
+            "write_attempts": 30,
+            "ack": 30
+          },
+          "cycle_metrics": {
+            "cycle_interval_ms": {
+              "count": 29,
+              "mean": 100.0625876206884,
+              "min": 97.3392910000257,
+              "max": 102.18774999998459,
+              "stddev": 1.364378367605647,
+              "p95_upper_ms": 102.1,
+              "p99_upper_ms": 102.2
+            },
+            "cycle_lateness_ms": {
+              "count": 30,
+              "mean": 2.6829724666640686,
+              "min": 1.3276250000444634,
+              "max": 4.340333999948598,
+              "stddev": 0.8278238538144825,
+              "p95_upper_ms": 4.1,
+              "p99_upper_ms": 4.4
+            }
+          }
+        },
+        {
+          "name": "200ms-sine",
+          "status": "passed",
+          "exit_code": 0,
+          "counters": {
+            "port_opens": 1,
+            "write_attempts": 15,
+            "ack": 15
+          },
+          "cycle_metrics": {
+            "cycle_interval_ms": {
+              "count": 14,
+              "mean": 199.93466371428377,
+              "min": 196.88754200001313,
+              "max": 202.00137500000892,
+              "stddev": 1.5300132324985927,
+              "p95_upper_ms": 202.1,
+              "p99_upper_ms": 202.1
+            },
+            "cycle_lateness_ms": {
+              "count": 15,
+              "mean": 2.8843861333295227,
+              "min": 0.619375000042055,
+              "max": 5.069958000035513,
+              "stddev": 1.2514397284436494,
+              "p95_upper_ms": 5.1,
+              "p99_upper_ms": 5.1
+            }
+          }
+        },
+        {
+          "name": "readback",
+          "status": "passed",
+          "exit_code": 0,
+          "counters": {
+            "port_opens": 1,
+            "write_attempts": 60,
+            "ack": 30,
+            "read": 30
+          },
+          "cycle_metrics": {
+            "cycle_interval_ms": {
+              "count": 29,
+              "mean": 99.9670977241357,
+              "min": 97.01699999993707,
+              "max": 102.46408400007567,
+              "stddev": 1.4007869527257193,
+              "p95_upper_ms": 102.4,
+              "p99_upper_ms": 102.5
+            },
+            "cycle_lateness_ms": {
+              "count": 30,
+              "mean": 2.1957947999150447,
+              "min": 0.42508399997132074,
+              "max": 3.8079999999354186,
+              "stddev": 0.9083647249988973,
+              "p95_upper_ms": 3.8,
+              "p99_upper_ms": 3.9
+            }
+          }
+        },
+        {
+          "name": "faults",
+          "status": "passed",
+          "exit_code": 0,
+          "counters": {
+            "port_opens": 1,
+            "write_attempts": 30,
+            "timeout": 1,
+            "bad_reply": 1,
+            "exception_ambiguous": 1,
+            "ack_ambiguous": 27
+          },
+          "cycle_metrics": {
+            "cycle_interval_ms": {
+              "count": 29,
+              "mean": 99.97748275862187,
+              "min": 97.6410839999744,
+              "max": 103.02887500006364,
+              "stddev": 1.34587125108243,
+              "p95_upper_ms": 102.5,
+              "p99_upper_ms": 103.1
+            },
+            "cycle_lateness_ms": {
+              "count": 30,
+              "mean": 2.927557299926775,
+              "min": 0.7205839998505326,
+              "max": 4.412749999914922,
+              "stddev": 0.8539169481216602,
+              "p95_upper_ms": 4.3,
+              "p99_upper_ms": 4.5
+            }
+          }
+        },
+        {
+          "name": "strict-failure",
+          "status": "passed",
+          "exit_code": 1,
+          "counters": {
+            "port_opens": 1,
+            "write_attempts": 1,
+            "timeout": 1
+          },
+          "cycle_metrics": {
+            "cycle_interval_ms": {
+              "count": 0,
+              "mean": null,
+              "min": null,
+              "max": null,
+              "stddev": null,
+              "p95_upper_ms": null,
+              "p99_upper_ms": null
+            },
+            "cycle_lateness_ms": {
+              "count": 1,
+              "mean": 1.2912089999872478,
+              "min": 1.2912089999872478,
+              "max": 1.2912089999872478,
+              "stddev": 0.0,
+              "p95_upper_ms": 1.3,
+              "p99_upper_ms": 1.3
+            }
+          }
+        }
+      ],
+      "evidence": "results/validation-20261023-macos-4e09bc0/rtu-master/report.json"
+    },
+    "matrix": {
+      "status": "passed",
+      "cases": [
+        {
+          "name": "rtu-slave-run",
+          "status": "passed",
+          "exit_code": 0,
+          "counters": {
+            "port_opens": 1,
+            "source_updates": 150,
+            "rx": 161,
+            "slave_request": 140,
+            "tx": 140,
+            "ignored_unit": 2,
+            "rtu_frame_rejected": 4
+          },
+          "checks": 146,
+          "stop_latency_ms": null,
+          "cycle_metrics": {}
+        },
+        {
+          "name": "tcp-slave-run",
+          "status": "passed",
+          "exit_code": 0,
+          "counters": {
+            "listener_opens": 1,
+            "source_updates": 150,
+            "rx": 145,
+            "slave_request": 141,
+            "tx": 140,
+            "ignored_unit": 2,
+            "client_closed": 3
+          },
+          "checks": 146,
+          "stop_latency_ms": null,
+          "cycle_metrics": {}
+        },
+        {
+          "name": "rtu-slave-worker",
+          "status": "passed",
+          "exit_code": 130,
+          "counters": {
+            "port_opens": 1,
+            "source_updates": 22,
+            "rx": 165,
+            "slave_request": 140,
+            "tx": 140,
+            "ignored_unit": 2,
+            "rtu_frame_rejected": 4
+          },
+          "checks": 146,
+          "stop_latency_ms": 38.9072909999868,
+          "cycle_metrics": {}
+        },
+        {
+          "name": "tcp-slave-worker",
+          "status": "passed",
+          "exit_code": 130,
+          "counters": {
+            "listener_opens": 1,
+            "source_updates": 15,
+            "rx": 145,
+            "slave_request": 141,
+            "tx": 140,
+            "ignored_unit": 2,
+            "client_closed": 3
+          },
+          "checks": 146,
+          "stop_latency_ms": 73.25245799995628,
+          "cycle_metrics": {}
+        },
+        {
+          "name": "rtu-slave-source-clock",
+          "status": "passed",
+          "exit_code": 130,
+          "counters": {
+            "port_opens": 1,
+            "source_updates": 15,
+            "rx": 10,
+            "slave_request": 5,
+            "tx": 5
+          },
+          "stop_latency_ms": 73.33549999998468,
+          "cycle_metrics": {}
+        },
+        {
+          "name": "tcp-slave-source-clock",
+          "status": "passed",
+          "exit_code": 130,
+          "counters": {
+            "listener_opens": 1,
+            "source_updates": 14,
+            "rx": 5,
+            "slave_request": 5,
+            "tx": 5
+          },
+          "stop_latency_ms": 75.7373749999033,
+          "cycle_metrics": {}
+        },
+        {
+          "name": "rtu-master-readback-run",
+          "status": "passed",
+          "exit_code": 0,
+          "counters": {
+            "port_opens": 1,
+            "write_attempts": 398,
+            "ack": 199,
+            "read": 199,
+            "schedule_missed": 1
+          },
+          "expected_cycles": 200,
+          "cycle_metrics": {
+            "cycle_interval_ms": {
+              "count": 198,
+              "mean": 100.50497832323246,
+              "min": 96.7273750000004,
+              "max": 201.00391600010425,
+              "stddev": 7.323653383425756,
+              "p95_upper_ms": 102.7,
+              "p99_upper_ms": 103.0
+            },
+            "cycle_lateness_ms": {
+              "count": 199,
+              "mean": 2.206020939699176,
+              "min": 0.6552920000331142,
+              "max": 4.592375000015636,
+              "stddev": 0.9687821091555017,
+              "p95_upper_ms": 3.8,
+              "p99_upper_ms": 4.3
+            }
+          }
+        },
+        {
+          "name": "rtu-master-readback-worker",
+          "status": "passed",
+          "exit_code": 0,
+          "counters": {
+            "port_opens": 1,
+            "write_attempts": 400,
+            "ack": 200,
+            "read": 200
+          },
+          "expected_cycles": 200,
+          "cycle_metrics": {
+            "cycle_interval_ms": {
+              "count": 199,
+              "mean": 100.00126402512561,
+              "min": 97.57062500000302,
+              "max": 103.6026670000183,
+              "stddev": 0.9438226086690144,
+              "p95_upper_ms": 101.7,
+              "p99_upper_ms": 102.6
+            },
+            "cycle_lateness_ms": {
+              "count": 200,
+              "mean": 2.063059149947434,
+              "min": 0.5239170000095328,
+              "max": 4.398082999955477,
+              "stddev": 0.6622939716759192,
+              "p95_upper_ms": 3.2,
+              "p99_upper_ms": 3.7
+            }
+          }
+        }
+      ],
+      "evidence": "results/validation-20261023-macos-4e09bc0/matrix/report.json"
+    },
+    "contention": {
+      "status": "passed",
+      "cases": [
+        {
+          "name": "rtu-slave-port-contention",
+          "status": "passed",
+          "exit_code": 130,
+          "counters": {
+            "open_errors": 2,
+            "source_updates": 23,
+            "port_opens": 1,
+            "rx": 2,
+            "slave_request": 1,
+            "tx": 1
+          },
+          "stop_latency_ms": 39.27141699978165,
+          "retry_intervals_s": [
+            1.001732625
+          ],
+          "cycle_metrics": {}
+        }
+      ],
+      "evidence": "results/validation-20261023-macos-4e09bc0/contention/report.json"
+    },
+    "gui-offscreen": {
+      "status": "passed",
+      "cases": [
+        {
+          "name": "rtu-master-readback-gui",
+          "status": "passed",
+          "exit_code": 0,
+          "counters": {
+            "port_opens": 1,
+            "write_attempts": 400,
+            "ack": 200,
+            "read": 200
+          },
+          "expected_cycles": 200,
+          "cycle_metrics": {
+            "cycle_interval_ms": {
+              "count": 199,
+              "mean": 100.01223575879486,
+              "min": 97.21983300005377,
+              "max": 103.65045899993675,
+              "stddev": 1.2202326751576837,
+              "p95_upper_ms": 102.2,
+              "p99_upper_ms": 103.3
+            },
+            "cycle_lateness_ms": {
+              "count": 200,
+              "mean": 2.2672071651743413,
+              "min": 0.42237499997099803,
+              "max": 4.090250000217566,
+              "stddev": 0.8175450824133537,
+              "p95_upper_ms": 3.6,
+              "p99_upper_ms": 3.9
+            }
+          }
+        }
+      ],
+      "evidence": "results/validation-20261023-macos-4e09bc0/gui-offscreen/report.json"
+    },
+    "gui-cocoa": {
+      "status": "passed",
+      "cases": [
+        {
+          "name": "rtu-master-readback-gui",
+          "status": "passed",
+          "exit_code": 0,
+          "counters": {
+            "port_opens": 1,
+            "write_attempts": 400,
+            "ack": 200,
+            "read": 200
+          },
+          "expected_cycles": 200,
+          "cycle_metrics": {
+            "cycle_interval_ms": {
+              "count": 199,
+              "mean": 100.01575942211151,
+              "min": 96.55575000010685,
+              "max": 102.73529200003395,
+              "stddev": 1.080886158798532,
+              "p95_upper_ms": 102.0,
+              "p99_upper_ms": 102.7
+            },
+            "cycle_lateness_ms": {
+              "count": 200,
+              "mean": 2.3443235550871577,
+              "min": 0.4377080001631839,
+              "max": 4.681207999965409,
+              "stddev": 0.7530653086958699,
+              "p95_upper_ms": 3.7,
+              "p99_upper_ms": 4.5
+            }
+          }
+        }
+      ],
+      "evidence": "results/validation-20261023-macos-4e09bc0/gui-cocoa/report.json"
+    }
+  },
+  "native_gui": {
+    "platform": "cocoa",
+    "visible": true,
+    "dpr": 2.0,
+    "logical_size": [
+      1225,
+      840
+    ],
+    "available_size": [
+      1439,
+      949
+    ],
+    "fonts": [
+      "PingFang SC"
+    ],
+    "default_mode": "tcp-slave",
+    "worker_started": false,
+    "control_heights": {
+      "start": 36,
+      "stop": 36,
+      "mode": 36,
+      "output": 36
+    }
+  },
+  "session_evidence": {
+    "count": 19,
+    "all_complete": true,
+    "sessions": [
+      {
+        "path": "results/validation-20261023-macos-4e09bc0/contention/rtu-slave-port-contention/slave/run/summary.json",
+        "evidence_complete": true
+      },
+      {
+        "path": "results/validation-20261023-macos-4e09bc0/gui-cocoa/rtu-master-readback-gui/master/gui-original/20261023-084439-fcb96695/summary.json",
+        "evidence_complete": true
+      },
+      {
+        "path": "results/validation-20261023-macos-4e09bc0/gui-cocoa/rtu-master-readback-gui/master/run/summary.json",
+        "evidence_complete": true
+      },
+      {
+        "path": "results/validation-20261023-macos-4e09bc0/gui-offscreen/rtu-master-readback-gui/master/gui-original/20261023-084417-b560d05c/summary.json",
+        "evidence_complete": true
+      },
+      {
+        "path": "results/validation-20261023-macos-4e09bc0/gui-offscreen/rtu-master-readback-gui/master/run/summary.json",
+        "evidence_complete": true
+      },
+      {
+        "path": "results/validation-20261023-macos-4e09bc0/matrix/rtu-master-readback-run/master/run/summary.json",
+        "evidence_complete": true
+      },
+      {
+        "path": "results/validation-20261023-macos-4e09bc0/matrix/rtu-master-readback-worker/master/run/summary.json",
+        "evidence_complete": true
+      },
+      {
+        "path": "results/validation-20261023-macos-4e09bc0/matrix/rtu-slave-run/backend/run/summary.json",
+        "evidence_complete": true
+      },
+      {
+        "path": "results/validation-20261023-macos-4e09bc0/matrix/rtu-slave-source-clock/backend/run/summary.json",
+        "evidence_complete": true
+      },
+      {
+        "path": "results/validation-20261023-macos-4e09bc0/matrix/rtu-slave-worker/backend/run/summary.json",
+        "evidence_complete": true
+      },
+      {
+        "path": "results/validation-20261023-macos-4e09bc0/matrix/tcp-slave-run/backend/run/summary.json",
+        "evidence_complete": true
+      },
+      {
+        "path": "results/validation-20261023-macos-4e09bc0/matrix/tcp-slave-source-clock/backend/run/summary.json",
+        "evidence_complete": true
+      },
+      {
+        "path": "results/validation-20261023-macos-4e09bc0/matrix/tcp-slave-worker/backend/run/summary.json",
+        "evidence_complete": true
+      },
+      {
+        "path": "results/validation-20261023-macos-4e09bc0/rtu-master/100ms/run/summary.json",
+        "evidence_complete": true
+      },
+      {
+        "path": "results/validation-20261023-macos-4e09bc0/rtu-master/100ms-four-points/run/summary.json",
+        "evidence_complete": true
+      },
+      {
+        "path": "results/validation-20261023-macos-4e09bc0/rtu-master/200ms-sine/run/summary.json",
+        "evidence_complete": true
+      },
+      {
+        "path": "results/validation-20261023-macos-4e09bc0/rtu-master/faults/run/summary.json",
+        "evidence_complete": true
+      },
+      {
+        "path": "results/validation-20261023-macos-4e09bc0/rtu-master/readback/run/summary.json",
+        "evidence_complete": true
+      },
+      {
+        "path": "results/validation-20261023-macos-4e09bc0/rtu-master/strict-failure/run/summary.json",
+        "evidence_complete": true
+      }
+    ]
+  },
+  "limitations": [
+    "未连接物理串口或真实设备",
+    "未验证跨主机 TCP",
+    "未制作或验证独立 macOS 安装包",
+    "未验证 Intel Mac、长时间运行或跨显示器拖动",
+    "CLI 四点读回存在 1 次 schedule_missed，未发送该槽位，不是通信成功"
+  ],
+  "sandbox_note": "首次沙箱内 Qt 因无法读取 CPU 特性而报缺少 NEON；允许系统读取后，同版本依赖通过全部适用回归与原生 Cocoa 验证。"
+}

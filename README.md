@@ -91,5 +91,13 @@ Ctrl+C 请求停止并收尾。退出码：0 按策略完成，1 运行失败，
 RTU 超时后无法仅凭相同 ACK 确认属于哪次请求，因此后续有效回复保守标记 ambiguous；重连不会清除此状态。
 
 - [协议库选型与边界](docs/pymodbus-evaluation.md)
-- [最新 Windows / 麒麟实际通信验证](docs/validation-20261023.md)
-- [M2 历史验证记录](docs/validation-m2.md)
+
+## 验证记录
+
+需求、设计、使用说明、验证方法与验收标准保留在 `docs/`；每轮验证报告和精简 JSON 摘要归档到
+[`logs/validation/`](logs/validation/README.md)，纳入版本管理。原始日志、截图及完整通信证据仍输出到
+`results/`，由 Git 忽略。报告中的复现命令和 `results/...` 路径均以项目根目录为基准。
+
+- [最新 Windows / 麒麟实际通信验证](logs/validation/validation-20261023.md)
+- [macOS Apple Silicon 实际通信与原生 GUI 验证](logs/validation/validation-macos-20261023.md)
+- [M2 历史验证记录](logs/validation/validation-m2.md)

@@ -37,7 +37,7 @@ P95/P99 为 0.1ms 有界直方图的桶上界；cycle_interval_ms 统计每槽�
 ## 证据与复现
 
 仓库 results/m2-validation/ 保留 windows-final、kylin-first、kylin-repeat 的报告与事件文件（results 为 Git 忽略目录）。
-docs/validation-m2/ 保留三轮 report.json，便于版本控制；首次失败报告包含失败计数。
+`logs/validation/validation-m2/` 保留三轮 report.json，便于版本控制；首次失败报告包含失败计数。
 麒麟临时测试目录为 /tmp/modbus-dev-m2.Hn6Vne，临时目录可被系统清理，以本地归档为准。
 
 ```sh
