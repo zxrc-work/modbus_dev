@@ -37,7 +37,7 @@ class LiveValues:
                         self.rows[key]["quality"] = data["quality"]
                     continue
                 complete = start <= point.address and stop >= point.address + 2
-                raw = words[point.address - start:point.address - start + 2] if complete else words
+                raw = words[max(start, point.address) - start:min(stop, point.address + 2) - start]
                 value = decode_float(raw, self.config.byte_order) if complete else None
                 quality = data.get("quality", "received") if complete else "partial"
                 if complete and value is None:

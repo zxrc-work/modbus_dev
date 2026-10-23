@@ -43,6 +43,14 @@ panel.plot.tick()
 assert len(panel.history.series['input:0:rx']) == 1
 panel.selectors['input:0:rx'].setChecked(False)
 assert not panel.selected('input:0:rx')
+row['quality'] = 'ambiguous'
+panel.ingest(dict(state='running', sampled_s=now, stale_after_s=1., rows=[row]))
+panel.refresh_values()
+assert panel.table.item(0, 3).text() == '1.25'
+assert panel.table.item(0, 5).text() == '应答关联不确定'
+assert '应答关联不确定' in panel.table.item(0, 3).toolTip()
+panel.plot.tick()
+assert panel.history.series['input:0:rx'][-1][1] is None
 window.monitor_tabs.setCurrentIndex(0)
 app.processEvents()
 assert not panel.plot.timer.isActive()

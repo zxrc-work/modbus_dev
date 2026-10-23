@@ -1,8 +1,11 @@
 """覆盖四种 RTU 操作、权限、独立存储、异常、广播以及实际发送证据。"""
 import struct
+from pathlib import Path
+import tempfile
 import unittest
 
 from modbus_dev.application.live import LiveValues, decode_float
+from modbus_dev.application.session import SessionRunner
 from modbus_dev.domain.config import TaskConfig
 from modbus_dev.domain.events import Event, ConfigurationError
 from modbus_dev.domain.operations import cycle_requests
@@ -82,8 +85,53 @@ class RegisterTests(unittest.TestCase):
         self.assertEqual(self.events[-1].details["direction"], "tx")
         self.assertEqual(self.events[-1].details["registers"], (0x4120, 0))
 
+    def test_cross_point_reads_and_writes_keep_only_each_points_registers(self):
+        settings = config(points=[dict(address=address) for address in (0, 2, 4)])
+        for function in (3, 4, 16):
+            with self.subTest(function=function):
+                live = LiveValues(settings)
+                bank = RtuRegisters(settings, Clock(), live.consume)
+                bank.publish(dict(enumerate((0x3f80, 0x1111, 0x4000, 0, 0x3333, 0))))
+                request = struct.pack(">BHH", function, 1, 4)
+                if function == 16:
+                    request += bytes.fromhex("081111400000003333")
+                bank.response(1, request)
+                if function in (3, 4):
+                    bank.response_submitted(.1)
+                rows = live.snapshot(.1, "running")["rows"]
+                self.assertEqual([row["point"] for row in rows], [0, 1, 2])
+                self.assertEqual([row["registers"] for row in rows],
+                                 [[0x1111], [0x4000, 0], [0x3333]])
+                self.assertEqual([row["value"] for row in rows], [None, 2., None])
+                self.assertEqual([row["quality"] for row in rows],
+                                 ["partial", "received" if function == 16 else "submitted", "partial"])
+                self.assertTrue(all(row["direction"] == ("rx" if function == 16 else "tx")
+                                    for row in rows))
+
 
 class OperationTests(unittest.TestCase):
+    def test_write_confirmation_keeps_uncertainty_after_timeout(self):
+        for actions, quality in (((), "confirmed"), (("timeout",), "ambiguous")):
+            with self.subTest(actions=actions), tempfile.TemporaryDirectory() as root:
+                clock = test_rtu_session.FakeControl()
+                peer = Peer(clock, actions, delay=.005)
+                runner = SessionRunner(config("rtu-master", duration_s=.3), Path(root) / "run", control=clock,
+                    engine_factory=lambda c, t, e: RtuEngine(c, t, e, lambda _: peer))
+                result = runner.run()
+                self.assertEqual(result["exit_code"], 0, result)
+                self.assertEqual(result["counters"].get("ack_ambiguous" if actions else "ack"),
+                                 2 if actions else 3)
+                self.assertEqual(result["counters"].get("timeout", 0), 1 if actions else 0)
+                snapshot = runner.live.snapshot(clock.now(), "running")
+                self.assertEqual(len(snapshot["rows"]), 1)
+                row = snapshot["rows"][0]
+                self.assertEqual(row["quality"], quality)
+                self.assertEqual(row["direction"], "tx")
+                self.assertEqual(row["registers"], [0, 0])
+                history = TrendHistory()
+                history.sample(snapshot, clock.now())
+                self.assertEqual(history.series[row["key"]][-1][1], None if actions else 0.)
+
     def test_each_operation_builds_correct_requests_and_budgets(self):
         for operation, functions in (("read-holding", [3]), ("read-input", [4]),
                                      ("write-single", [6, 6]), ("write-multiple", [16])):

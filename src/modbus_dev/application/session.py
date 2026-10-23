@@ -103,9 +103,12 @@ class SessionRunner:
             self._value_event(request, reply.registers, "rx", reply.received_s,
                               quality)
         elif request.function in (6, 16):
+            quality = reply.status
+            if reply.status == "ack":
+                quality = "ambiguous" if reply.ambiguous else "confirmed"
             event = Event("register_confirmation", "写入应答状态", "DEBUG", "communication",
                           dict(area="holding", direction="tx", address=request.address, count=request.count,
-                               quality="confirmed" if reply.status == "ack" and not reply.ambiguous else reply.status))
+                               quality=quality))
             self.live.consume(event)
         status = reply.status + ("_ambiguous" if reply.ambiguous and reply.status in ("ack", "read", "exception") else "")
         self.counters[status] += 1
