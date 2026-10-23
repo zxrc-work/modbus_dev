@@ -1,4 +1,4 @@
-"""Versioned JSONL worker. No Qt imports; slow UI pipes never block SessionRunner."""
+"""版本化 JSONL 工作进程；快照最多 5Hz，缓慢界面管道不阻塞通信线程。"""
 from collections import deque
 import json
 import os
@@ -10,6 +10,7 @@ import traceback
 from .application.session import SessionRunner
 from .domain.config import load_config
 from .reporting.journal import Journal
+from .domain.live_policy import VALUE_REFRESH_HZ
 
 
 class EventPreview:
@@ -114,14 +115,16 @@ def main(config_path, output):
             events, dropped = preview.drain()
             recording = runner.journal.snapshot() if runner.journal else {}
             publish(dict(type="status", state=runner.state, counters=dict(runner.counters),
-                         recording=recording, events=events, preview_dropped=dropped))
-            task.join(.2)
+                         recording=recording, events=events, preview_dropped=dropped,
+                         live=runner.live.snapshot(runner.control.now(), runner.state)))
+            task.join(1 / VALUE_REFRESH_HZ)
         task.join()
     except Exception as exc:
         traceback.print_exc(file=sys.stderr)
         result.update(state="failed", exit_code=2, error=str(exc), stop_reason="configuration_error")
     events, dropped = preview.drain()
-    publish(dict(type="result", result=result, events=events, preview_dropped=dropped))
+    publish(dict(type="result", result=result, events=events, preview_dropped=dropped,
+                 live=runner.live.snapshot(runner.control.now(), runner.state) if 'runner' in locals() else {}))
     sender.join(2)
     # A broken or blocked output channel is never reported as a successful worker.
     return 1 if sender.is_alive() or pipe_failed.is_set() else result["exit_code"]

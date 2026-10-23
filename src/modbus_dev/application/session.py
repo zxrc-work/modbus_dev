@@ -6,13 +6,14 @@ import threading
 import traceback
 
 from ..domain.events import Event
-from ..domain.mapping import write_requests
-from ..domain.transactions import Request, StopRequested
+from ..domain.operations import cycle_requests
+from ..domain.transactions import StopRequested
 from ..sources.synthetic import SyntheticSource
 from ..reporting.journal import Journal, LogWriteError
 from .control import Control
 from .metrics import Metric
 from .timing import AbsoluteSchedule
+from .live import LiveValues
 
 _ACTIVE_SESSION = threading.Lock()
 
@@ -43,6 +44,8 @@ class SessionRunner:
         self.journal = self.engine = None
         self.current_slot = None
         self.current_scheduled = None
+        self.current_request = None
+        self.live = LiveValues(config)
 
     def _emit(self, code, message, level="INFO", phase="runtime", **details):
         self.journal.emit(Event(code, message, level, phase, details))
@@ -60,6 +63,10 @@ class SessionRunner:
         details = dict(event.details)
         details.update(slot=self.current_slot, port=self.config.serial.port, unit=self.config.unit)
         if event.code == "tx":
+            request = self.current_request
+            packet = details.get("hex", "")
+            if request and request.function in (6, 16) and details.get("bytes_written") == len(packet) // 2:
+                self._value_event(request, request.registers, "tx", details["sent_s"], "submitted")
             sent = details["sent_s"]
             self.counters["write_attempts"] += 1
             if self.previous_send is not None:
@@ -86,7 +93,20 @@ class SessionRunner:
         self.journal.emit(Event(event.code, event.message, event.level, event.phase, details))
 
     def _transaction(self, request, deadline, slot, scheduled):
+        self.current_request = request
         reply = self.engine.exchange(request, deadline)
+        self.current_request = None
+        if reply.status == "read":
+            quality = "ambiguous" if reply.ambiguous else "received"
+            if request.registers and reply.registers != request.registers:
+                quality = "readback-mismatch"
+            self._value_event(request, reply.registers, "rx", reply.received_s,
+                              quality)
+        elif request.function in (6, 16):
+            event = Event("register_confirmation", "写入应答状态", "DEBUG", "communication",
+                          dict(area="holding", direction="tx", address=request.address, count=request.count,
+                               quality="confirmed" if reply.status == "ack" and not reply.ambiguous else reply.status))
+            self.live.consume(event)
         status = reply.status + ("_ambiguous" if reply.ambiguous and reply.status in ("ack", "read", "exception") else "")
         self.counters[status] += 1
         if reply.received_s is not None and reply.sent_s is not None:
@@ -98,6 +118,14 @@ class SessionRunner:
                    received_s=reply.received_s, deadline_s=deadline, timeout_ms=self.config.timeout_ms,
                    ambiguous=reply.ambiguous, exception_code=reply.exception_code, detail=reply.detail)
         return reply
+
+    def _value_event(self, request, registers, direction, sampled_s, quality):
+        event = Event("register_values", "实际寄存器数值", "DEBUG", "communication",
+                      dict(area="input" if request.function == 4 else "holding", direction=direction,
+                           address=request.address, registers=registers, function=request.function,
+                           sampled_s=self.control.now() if sampled_s is None else sampled_s, quality=quality))
+        self.live.consume(event)
+        self.journal.emit(event)
 
     def run(self):
         if self.config.mode in ("tcp-slave", "rtu-slave"):
@@ -179,11 +207,8 @@ class SessionRunner:
                         self.control.check()
                         self.current_slot, self.current_scheduled = slot, decision.scheduled_s
                         values = source.sample(slot)
-                        requests = write_requests(self.config.addresses, values, self.config.byte_order)
                         readback = bool(self.config.readback_every and slot % self.config.readback_every == 0)
-                        if readback:
-                            requests += [Request(self.config.read_function, r.address, r.count, r.registers)
-                                         for r in requests]
+                        requests = cycle_requests(self.config, values, readback)
                         # Reserve the complete remaining group plan before the first write.
                         minimum = sum(self.engine.minimum_s(r) for r in requests)
                         minimum += (len(requests) - 1) * self.config.serial.gap_ms / 1000
@@ -198,7 +223,7 @@ class SessionRunner:
                         try:
                             for request in requests:
                                 reply = self._transaction(request, decision.deadline_s, slot, decision.scheduled_s)
-                                if reply.status == "read" and reply.registers != request.registers:
+                                if reply.status == "read" and request.registers and reply.registers != request.registers:
                                     self.counters["readback_mismatch"] += 1
                                     self._emit("readback_mismatch", "Readback differs from source registers", "ERROR",
                                                "verification", slot=slot, address=request.address,

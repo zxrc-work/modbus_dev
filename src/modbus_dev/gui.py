@@ -19,14 +19,19 @@ from PySide6.QtWidgets import (
 from .application.session import check_capabilities
 from .domain.config import MAX_POINTS, PointConfig, TaskConfig, load_config, point_conflicts
 from .gui_points import PointEditor
+from .gui_live import RealtimePanel
+from .domain.operations import OPERATIONS
 from .gui_theme import METRICS, application_palette, application_stylesheet, ui_font
 from .gui_widgets import CheckBox, ComboBox, WorkbenchStyle, card, label, refresh_style
 from .runtime import default_output_directory, worker_command
 
 
 CHOICE_LABELS = {
-    "tcp-slave": "TCP 只读从站", "rtu-slave": "RTU 只读从站", "rtu-master": "RTU 主站",
+    "tcp-slave": "TCP 只读从站", "rtu-slave": "RTU 从站", "rtu-master": "RTU 主站",
     "continuous": "连续运行", "strict": "严格模式", "constant": "常量", "sine": "正弦波",
+    "read-only": "只读", "read-write": "读写",
+    "read-holding": "FC03 · 读保持寄存器", "read-input": "FC04 · 读输入寄存器",
+    "write-single": "FC06 · 逐个写寄存器", "write-multiple": "FC16 · 写多个寄存器",
 }
 COUNTER_LABELS = {
     "source_updates": "数据更新", "slave_request": "从站请求", "rx": "接收调用", "tx": "发送调用",
@@ -66,6 +71,8 @@ class Workbench(QMainWindow):
         self.stop_timer.setSingleShot(True)
         self.stop_timer.timeout.connect(self.force_stop)
         self.fields["mode"].currentIndexChanged.connect(self.mode_changed)
+        self.fields["access_mode"].currentIndexChanged.connect(self.operation_changed)
+        self.fields["master_operation"].currentIndexChanged.connect(self.operation_changed)
         for key in ("host", "port", "unit", "serial.port", "serial.baud"):
             self.fields[key].textChanged.connect(self.update_connection_summary)
         self.apply_config(TaskConfig.from_mapping(self.base_config))
@@ -155,6 +162,7 @@ class Workbench(QMainWindow):
         connection = page("连接与时序")
         group(connection, "通信模式", [("mode", "模式", ["tcp-slave", "rtu-slave", "rtu-master"]),
                                       ("policy", "运行策略", ["continuous", "strict"])])
+        self.access_box = group(connection, "RTU 访问权限", [("access_mode", "权限", ["read-only", "read-write"])])
         self.tcp_box = group(connection, "TCP 监听", [("host", "绑定地址", None), ("port", "端口", None)])
         self.serial_box = group(connection, "串口连接", [("serial.port", "串口", None), ("serial.baud", "波特率", None),
                                                        ("serial.parity", "校验位", ["N", "E", "O"]),
@@ -171,10 +179,12 @@ class Workbench(QMainWindow):
         self.fields["timeout_ms"].setToolTip("主站为整周期交易预算；从站为单次写等待上限，不是轮询周期。")
         self.fields["duration_s"].setToolTip("0 表示持续运行，直到手动停止。")
         self.fields["duration_s"].setPlaceholderText("0 = 持续运行")
-        self.master_box = group(connection, "主站读回与调度", [("readback_every", "读回间隔 / 周期", None),
-                                                      ("read_function", "读回功能码", ["3", "4"]),
+        self.master_box = group(connection, "主站操作与调度", [("master_operation", "周期操作", list(OPERATIONS)),
+                                                      ("readback_every", "写后读回间隔 / 周期", None),
+                                                      ("read_function", "写后读回功能码", ["3", "4"]),
                                                       ("schedule_tolerance_percent", "调度容差 %", None)])
         self.fields["readback_every"].setToolTip("每 N 周期读回一次；0 表示关闭读回。")
+        self.fields["master_operation"].setToolTip("读取不发送写入报文；FC06 按 16 位寄存器逐个写入，一个 float32 分两笔。")
         connection.addStretch()
 
         data = page("数据设置")
@@ -275,7 +285,8 @@ class Workbench(QMainWindow):
         metrics_layout.addLayout(row)
         layout.addWidget(metrics)
         monitor, monitor_layout = card()
-        monitor_layout.addWidget(label("运行记录", "section"))
+        self.live_panel = RealtimePanel()
+        monitor_layout.addWidget(self.live_panel)
         self.monitor_tabs = QTabWidget()
         self.stats = QTableWidget(0, 2)
         self.stats.setHorizontalHeaderLabels(["统计项", "数值"])
@@ -293,6 +304,7 @@ class Workbench(QMainWindow):
         self.logs.setMinimumHeight(140)
         self.logs.setPlaceholderText("启动会话后，运行日志将在这里显示。\n界面保留最近 2000 行，完整日志自动保存到结果目录。")
         self.monitor_tabs.addTab(self.logs, "运行日志")
+        self.monitor_tabs.addTab(self.live_panel.curve_page, "趋势曲线")
         self.monitor_tabs.addTab(self.stats, "详细统计")
         monitor_layout.addWidget(self.monitor_tabs, 1)
         self.recording = label("日志证据：未开始", "caption")
@@ -325,7 +337,9 @@ class Workbench(QMainWindow):
         self.rts.setChecked(config.serial.rts_toggle)
         for editor, point in zip(self.point_editors, config.points):
             editor.apply_point(point)
+        self.live_panel.configure(config)
         self.mode_changed()
+        self.operation_changed()
 
     def configuration(self):
         data = json.loads(json.dumps(self.base_config))
@@ -350,6 +364,8 @@ class Workbench(QMainWindow):
         data["points"] = [editor.configuration() for editor in self.point_editors]
         if data["mode"] != "rtu-master":
             data["readback_every"] = 0
+        elif OPERATIONS[data["master_operation"]] in (3, 4):
+            data["readback_every"] = 0
         config = TaskConfig.from_mapping(data)
         check_capabilities(config)
         return config
@@ -358,13 +374,36 @@ class Workbench(QMainWindow):
         mode = self.text("mode")
         self.tcp_box.setVisible(mode == "tcp-slave")
         self.serial_box.setVisible(mode != "tcp-slave")
+        self.access_box.setVisible(mode != "tcp-slave")
         self.master_box.setVisible(mode == "rtu-master")
-        self.hint.setText("主站会使用 FC16 写入设备；请核对串口、站号与点表。" if mode == "rtu-master" else
-                          "只读从站 · FC03/04 · 完整 float32 点 · 不接受写入")
-        self.hint.setProperty("writing", mode == "rtu-master")
+        self.operation_changed()
         refresh_style(self.hint)
         self.update_connection_summary()
         self.update_metrics()
+
+    def operation_changed(self, *_):
+        mode = self.text("mode")
+        readonly = self.text("access_mode") == "read-only"
+        operation = self.fields["master_operation"]
+        for index in range(operation.count()):
+            operation.model().item(index).setEnabled(not readonly or OPERATIONS[operation.itemData(index)] in (3, 4))
+        if readonly and self.text("master_operation") in ("write-single", "write-multiple"):
+            operation.setCurrentIndex(operation.findData("read-input"))
+        writing = self.text("master_operation") in ("write-single", "write-multiple")
+        self.fields["readback_every"].setEnabled(writing)
+        self.fields["read_function"].setEnabled(False)
+        self.fields["read_function"].setCurrentIndex(self.fields["read_function"].findData("3"))
+        if mode == "rtu-master":
+            text = ("写入保持寄存器；可通过 FC03 写后读回。FC06 的 float32 分两笔写入。" if writing else
+                    "只发送读取请求，不先写入；FC03 读保持区，FC04 读输入区波形。")
+        elif mode == "rtu-slave":
+            text = ("只读从站 · FC03/04；写入请求返回异常应答。" if readonly else
+                    "读写从站 · FC03/04/06/16；保持区保存写入，输入区独立生成波形。")
+        else:
+            text = "TCP 保持原有只读行为；本轮不扩展 TCP 写入。"
+        self.hint.setText(text)
+        self.hint.setProperty("writing", mode == "rtu-master" and writing)
+        refresh_style(self.hint)
 
     def update_points_summary(self):
         # 即时检查只读取启用和地址，避免用户正在输入波形参数时弹出错误。
@@ -474,6 +513,8 @@ class Workbench(QMainWindow):
             self.forced = False
             self.logs.clear()
             self.counter_mode = config.mode
+            self.live_panel.configure(config)
+            self.live_panel.set_state("starting")
             self.show_counters({})
             self.monitor_tabs.setCurrentIndex(0)
             self.recording.setText("日志证据：等待工作进程")
@@ -522,6 +563,8 @@ class Workbench(QMainWindow):
             self.force_stop()
 
     def display(self, packet):
+        if packet.get("live"):
+            self.live_panel.ingest(packet["live"])
         dropped = packet.get("preview_dropped", 0)
         if dropped > self.preview_dropped:
             self.logs.appendPlainText(f"界面日志预览累计丢失 {dropped} 条；完整证据以结果目录为准。")
@@ -625,6 +668,7 @@ class Workbench(QMainWindow):
                 self.recording.setText("日志证据：无摘要文件")
         if self.stderr:
             self.logs.appendPlainText(self.stderr)
+        self.live_panel.set_state("failed" if abnormal else "stopped")
         self.set_running(False)
         if self.temporary:
             self.temporary.cleanup()
@@ -638,6 +682,7 @@ class Workbench(QMainWindow):
             self.stop()
             event.ignore()
         else:
+            self.live_panel.set_state("stopped")
             event.accept()
 
     def resizeEvent(self, event):

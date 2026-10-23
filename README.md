@@ -4,16 +4,20 @@
 
 - [需求](docs/requirements.md)
 - [架构设计](docs/design.md)
-- [实施记录](logs/implementation.md)
-- [测试总结](logs/validation/README.md)
+- [实施状态与验证计划](docs/implementation.md)
 
 ## 当前可用能力
 
-RTU 主站 FC16 发数、四个独立常量/正弦测点、FC03/04 读回验证、连续/严格策略、端口枚举、
+**新增 RTU FC03/04/06/16、主从站只读 / 读写权限，以及 5Hz 实时数值、2Hz 最近十秒趋势曲线。**
+保持区保存写入值，输入区独立生成波形；具体操作、兼容规则和两机测试步骤见
+[RTU 寄存器读写与实时监视](docs/rtu-register-monitor.md)。本轮没有扩展 TCP 写入或重建已有便携包。
+
+RTU 主站可选读取、逐个 / 批量写入、FC03 写后读回；四个独立常量/正弦测点、连续/严格策略、端口枚举、
 绝对周期调度、停止与重连、原始报文及有界异步日志。CLI 和 GUI 共用 SessionRunner。
-RTU/TCP 只读从站支持常量/正弦、FC03/04、独立数据时钟和完整 float32 快照；其他请求功能码被拒绝。
+RTU 从站支持 FC03/04/06/16 和独立保持区 / 输入区；TCP 从站保留原有 FC03/04 只读行为。
 PySide6 单会话 GUI 已实现配置编辑/加载/保存、启动/停止、状态、计数、日志预览和结果目录。
-支持按目标平台构建 Cython 目录式便携包。DYN/CSV 离线输入暂缓；validate 只校验配置，不打开通信端口。
+**macOS arm64 已完成 Cython 目录式便携包及本机实包验收；Windows x64 / 麒麟 x86_64
+仅有构建适配，待对应电脑验收。DYN/CSV 离线输入继续暂缓。validate 只校验配置，不代表功能已可运行。**
 
 ```sh
 python -m pip install -e .
@@ -46,7 +50,8 @@ GUI 依赖可选，锁定 PySide6 6.7.2；普通 CLI 安装不需要 Qt。
 设置 float32 零基起始地址和常量/正弦源；禁用点保留配置，但不参与通信和地址占用。
 每点独立计算数值，字节序与数据周期共用；地址采用数字框，不再输入逗号列表。
 启用点的寄存器范围重叠会即时提示，至少启用一个点才能启动。
-RTU 主站启动后会执行 FC16 写入。旧版 JSON 可加载，保存及运行快照统一使用 schema_version=2。
+RTU 主站按所选操作执行通信，纯读取不先发送写入。旧版 JSON 可加载，保存及运行快照统一使用 schema_version=2。
+此改动目前仅在源码中生效，已有 `dist/` 便携包未重新构建。
 新版多测点配置示例见 [`examples/tcp-four-points.json`](examples/tcp-four-points.json)，
 可直接在 GUI 中加载；其中前三点分别为常量、正弦、另一常量，第四点为禁用的预留配置。
 结果父目录下每次创建独立时间戳目录，运行期间禁止修改配置；停止后可以修改并再次启动。
@@ -57,8 +62,12 @@ RTU 主站启动后会执行 FC16 写入。旧版 JSON 可加载，保存及运�
 “其他设置 → 日志保留”可配置分片数量，默认最多 100 片（包含当前文件），每片不超过 32 MiB。
 超限删除最旧分片；历史淘汰、日志队列丢失和界面预览丢失分别展示，不把滚动窗口宣称为完整会话证据。
 界面预览丢失与原始日志丢失分别计数。最终性能统计保存在 summary.json，并显示于结束日志。
+此前 Windows GUI 阶段 87 项测试通过，验证原生高 DPI/字体、Qt 离屏渲染、工作进程和本机 TCP 读数；
+覆盖 100%～200% 及当时 300% 缩放；该轮属于源码验证，Windows 发布包验收见下文，跨显示器拖动和麒麟桌面仍待验收。
+最新 macOS 便携包状态见下节，GUI 虚拟串口联调结果见通信验证记录。
 
 开发基线 Python 3.10+；锁定 PyModbus 3.11.4 和 pySerial 3.5，CLI 不需要 Qt。
+此前 Windows / 麒麟源码验证的具体 Python、Qt 版本见对应归档；未在系统 Python 3.7 上运行新包。
 示例 COM11 仅为演示值，validate 不打开串口，run 会打开指定串口。
 Linux 使用自己的设备路径；源码不限制 GUI 平台，发布包需要分平台构建验证。
 
@@ -70,26 +79,33 @@ TCP 示例中 unit=1，FC03/04 共用地址 0、2、4、6 的四个 float32 点�
 数据按 period_ms 推进，与客户端轮询频率无关；duration_s=0 持续运行。
 TCP 会话摘要使用 source_updates、slave_request、rx、tx 等计数；rx/tx 是驱动调用记录数，不是报文数。
 
-RTU 从站使用相同点表和只读规则；广播及其他站号静默忽略。CRC 错误、短帧、超过 256 字节的帧整帧丢弃，
+RTU 从站按权限响应四种寄存器操作；合法广播写入执行但不应答，其他站号静默忽略。CRC 错误、短帧、超过 256 字节的帧整帧丢弃，
 等待下一次静默后恢复，不从噪声中扫描嵌入请求。接收间隔依据驱动交付时刻，不能视为物理总线时间。
-仅面向单主站请求/应答测试。
+仅面向单主站请求/应答测试；Windows 虚拟 COM 与麒麟 PTY 已完成实测，详见最新通信验证记录。多点 RS485 与物理设备仍待验收。
 持续策略下串口打开失败、读写异常或短写至少间隔 1 秒重连；严格策略遇到这些故障停止。
 重连不重置数据时钟；无轮询时数据也继续更新。timeout_ms 限制从站单次写等待（另有 50ms 上限），
 不是主站等待回复的超时；接收等待最多 10ms，并受下一数据更新时间约束。
 
 ## 目录式便携包
 
-目录式便携包携带 Python 和运行依赖，构建产物在 `dist/`。
+macOS arm64、Windows x64 已生成无需安装 Python 的目录式便携包，产物在 `dist/`。
 macOS 完整解压 `.tar.gz` 后打开 `ModbusDev.app`，CLI 为
 `ModbusDev.app/Contents/MacOS/modbus-dev`；Windows 完整解压 `.zip` 后打开 `ModbusDev/ModbusDev.exe`，
 CLI 为相邻的 `modbus-dev.exe`。两个入口共享包内运行时，GUI 经独立 CLI worker 通信。
 GUI 的结果和启动诊断默认写入用户数据目录，不修改应用包。
 
-业务、界面和工作进程模块经 Cython 编译。各系统与 CPU 架构需要原生构建，
-构建步骤及产物结构见打包说明。
+所有 26 个应用模块经 Cython 编译。源码与编译后各收集 114 项回归，均通过 113 项、跳过
+1 项 Windows 专属测试；实际归档解压后验证 TCP、隔离 PTY RTU 主从站、停止与异常恢复，
+GUI 覆盖原生 Cocoa、离屏和 LaunchServices 应用包启动。Windows 源码及编译后各通过 112 项、
+跳过 2 项 POSIX 专属测试；实际解压包通过双入口、TCP、原生/离屏 GUI 和 100%～200% DPI 验收。
+发布版 CLI/worker 另经用户指定的 HHD COM11/COM12 验证 RTU 主从站、写入读回和串口占用恢复。
+麒麟发布包尚未实测。macOS 当前仅使用 ad-hoc 签名，未做 Developer ID 签名和公证；Windows 未签名。
+本机验收不等于已完成异机外部分发验收。
 
 - [构建步骤、入口与平台验收边界](docs/packaging.md)
 - [便携版使用说明](docs/portable-quickstart.md)
+- [本轮 macOS 实包验收记录](logs/validation/packaging-macos-20261023.md)
+- [本轮 Windows 实包验收记录](logs/validation/packaging-windows-20261023.md)
 
 ## 运行结果
 
@@ -100,7 +116,7 @@ GUI 的结果和启动诊断默认写入用户数据目录，不修改应用包�
 比较的是实际写调用开始时刻，包含串口静默等待；同周期的后续分组和读回不重复判定。
 它不会移动绝对时间基准，也不延长 `timeout_ms`：后者仍是相对计划槽位的整周期交易截止预算。
 连续模式偶发通信异常继续，落后整周期跳槽不补发；严格模式仍在交易失败或落后整周期时停止。
-调度容差不改变 RTU 应答关联不确定的取证规则。
+本次调度配置不改变 RTU 应答关联不确定的取证规则。
 
 Ctrl+C 请求停止并收尾。退出码：0 按策略完成，1 运行失败，2 配置/依赖错误，130 用户停止。
 连续模式允许通信异常，退出码 0 不代表全部交易成功，需查看 counters 和 ack_correlation_uncertain。
@@ -128,3 +144,15 @@ Ctrl+C 请求停止并收尾。退出码：0 按策略完成，1 运行失败，
 RTU 超时后无法仅凭相同 ACK 确认属于哪次请求，因此后续有效回复保守标记 ambiguous；重连不会清除此状态。
 
 - [协议库选型与边界](docs/pymodbus-evaluation.md)
+
+## 验证记录
+
+需求、设计、使用说明、验证方法与验收标准保留在 `docs/`；每轮验证报告和精简 JSON 摘要归档到
+[`logs/validation/`](logs/validation/README.md)，纳入版本管理。原始日志、截图及完整通信证据仍输出到
+`results/`，由 Git 忽略。报告中的复现命令和 `results/...` 路径均以项目根目录为基准。
+
+- [最新 Windows / 麒麟实际通信验证](logs/validation/validation-20261023.md)
+- [macOS Apple Silicon 实际通信与原生 GUI 验证](logs/validation/validation-macos-20261023.md)
+- [macOS arm64 Cython 便携包实包验收](logs/validation/packaging-macos-20261023.md)
+- [Windows x64 Cython 便携包实包验收](logs/validation/packaging-windows-20261023.md)
+- [M2 历史验证记录](logs/validation/validation-m2.md)

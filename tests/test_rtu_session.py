@@ -275,12 +275,14 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(result["exit_code"], 1)
         self.assertEqual(len(peer.writes), 1)
 
-    def test_fc03_and_fc04_readback(self):
-        for function in (3, 4):
-            result, peer, _ = self.exercise(duration=.1, delay=.01, readback_every=1, read_function=function)
-            self.assertEqual(result["counters"]["read"], 1)
-            self.assertEqual([data[1] for _, data in peer.writes], [16, function])
-            self.assertGreaterEqual(peer.writes[1][0] - .11, 3.5 * 10 / 9600 - 1e-12)
+    def test_fc03_readback_and_fc04_independent_read(self):
+        result, peer, _ = self.exercise(duration=.1, delay=.01, readback_every=1)
+        self.assertEqual(result["counters"]["read"], 1)
+        self.assertEqual([data[1] for _, data in peer.writes], [16, 3])
+        self.assertGreaterEqual(peer.writes[1][0] - .11, 3.5 * 10 / 9600 - 1e-12)
+        result, peer, _ = self.exercise(duration=.1, delay=.01, master_operation="read-input")
+        self.assertEqual(result["counters"]["read"], 1)
+        self.assertEqual([data[1] for _, data in peer.writes], [4])
 
     def test_readback_mismatch_fails_strict_policy(self):
         result, _, events = self.exercise(["ack", "mismatch"], delay=.01, readback_every=1, policy="strict")

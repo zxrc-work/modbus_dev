@@ -1,0 +1,15 @@
+{
+  "schema_version": 2,
+  "mode": "rtu-master",
+  "access_mode": "read-only",
+  "master_operation": "read-input",
+  "policy": "continuous",
+  "serial": {"port": "COM11", "baud": 115200, "parity": "N", "stop_bits": 1},
+  "unit": 1,
+  "points": [{"name": "压力", "address": 0, "source": {"kind": "constant", "value": 0}}],
+  "byte_order": "B1234",
+  "period_ms": 100,
+  "timeout_ms": 80,
+  "readback_every": 0,
+  "duration_s": 0
+}

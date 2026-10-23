@@ -1,0 +1,14 @@
+{
+  "schema_version": 2,
+  "mode": "rtu-slave",
+  "access_mode": "read-write",
+  "policy": "continuous",
+  "serial": {"port": "COM12", "baud": 115200, "parity": "N", "stop_bits": 1},
+  "unit": 1,
+  "points": [{"name": "压力", "address": 0,
+              "source": {"kind": "sine", "value": 10, "amplitude": 1, "frequency_hz": 0.8}}],
+  "byte_order": "B1234",
+  "period_ms": 100,
+  "timeout_ms": 80,
+  "duration_s": 0
+}

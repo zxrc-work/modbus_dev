@@ -1,14 +1,11 @@
-"""Deadline-controlled FC16/03/04 adapter using PyModbus PDUs and CRC.
-
-No general-purpose protocol stack, hidden retries, automatic buffer clearing,
-or pySerial flush. See docs/pymodbus-evaluation.md for the client decision.
-"""
+"""RTU FC03/04/06/16 适配器：复用 PyModbus 编码，使用绝对截止时间，不隐藏重试。"""
 import struct
 
 from pymodbus.framer.rtu import FramerRTU
 from pymodbus.pdu import DecodePDU
 from pymodbus.pdu.register_message import (
     ReadHoldingRegistersRequest, ReadInputRegistersRequest, WriteMultipleRegistersRequest,
+    WriteSingleRegisterRequest,
 )
 
 from ..domain.events import Event
@@ -70,14 +67,14 @@ class RtuEngine:
         self.emit(Event(code, message, level, "communication", details))
 
     def packet(self, request):
-        classes = {16: WriteMultipleRegistersRequest, 3: ReadHoldingRegistersRequest,
+        classes = {6: WriteSingleRegisterRequest, 16: WriteMultipleRegistersRequest, 3: ReadHoldingRegistersRequest,
                    4: ReadInputRegistersRequest}
         pdu = classes[request.function](dev_id=self.config.unit, address=request.address,
                                        count=request.count, registers=list(request.registers))
         return self.framer.buildFrame(pdu)
 
     def minimum_s(self, request):
-        response_bytes = 8 if request.function == 16 else 5 + 2 * request.count
+        response_bytes = 8 if request.function in (6, 16) else 5 + 2 * request.count
         return ((len(self.packet(request)) + response_bytes) *
                 self.config.serial.bits_per_character / self.config.serial.baud +
                 self.config.serial.gap_ms / 1000)
@@ -156,8 +153,11 @@ class RtuEngine:
                     self.mark_uncertain("Malformed response PDU")
                     continue
                 if not pdu.isError():
-                    matches = ((pdu.address, pdu.count) == (request.address, request.count)
-                               if request.function == 16 else len(pdu.registers) == request.count)
+                    if request.function == 6:
+                        matches = pdu.address == request.address and tuple(pdu.registers) == request.registers
+                    else:
+                        matches = ((pdu.address, pdu.count) == (request.address, request.count)
+                                   if request.function == 16 else len(pdu.registers) == request.count)
                     if not matches:
                         self.mark_uncertain("Response address or register quantity does not match")
                         self._event("reply_mismatch", "Response does not match requested range", "WARNING",
@@ -170,7 +170,7 @@ class RtuEngine:
                     self.mark_uncertain("Reply delivered after deadline")
                     self.inflight = False
                     return Reply("late_reply", sent_s=sent, received_s=received, ambiguous=True)
-                status = "exception" if pdu.isError() else "ack" if request.function == 16 else "read"
+                status = "exception" if pdu.isError() else "ack" if request.function in (6, 16) else "read"
                 self.inflight = False
                 return Reply(status, tuple(pdu.registers), sent, received, self.uncertain,
                              exception_code=pdu.exception_code if pdu.isError() else None)

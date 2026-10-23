@@ -1,4 +1,4 @@
-"""Wire-time estimates. Pure calculation, independent of transport libraries."""
+"""按实际操作计划计算串口线速预算，不依赖通信驱动。"""
 
 
 def minimum_cycle_ms(config):
@@ -7,18 +7,13 @@ def minimum_cycle_ms(config):
     Runtime must recalculate if source quality changes the write groups.
     Readback configs reserve their busiest slot, not an average over slots.
     """
-    groups = []
-    for address in sorted(config.addresses):
-        if groups and groups[-1][-1] + 2 == address:
-            groups[-1].append(address)
-        else:
-            groups.append([address])
+    from .operations import cycle_requests
+    requests = cycle_requests(config, [0.] * len(config.addresses), bool(config.readback_every))
     wire_bytes, transactions = 0, 0
-    for group in groups:
-        wire_bytes += 9 + 4 * len(group) + 8
+    for request in requests:
+        request_bytes = 9 + 2 * request.count if request.function == 16 else 8
+        response_bytes = 8 if request.function in (6, 16) else 5 + 2 * request.count
+        wire_bytes += request_bytes + response_bytes
         transactions += 1
-        if config.readback_every:
-            wire_bytes += 8 + 5 + 4 * len(group)
-            transactions += 1
     character_ms = 1000 * config.serial.bits_per_character / config.serial.baud
     return wire_bytes * character_ms + (2 * transactions - 1) * config.serial.gap_ms

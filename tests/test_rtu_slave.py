@@ -125,7 +125,8 @@ class RtuSlaveWireTests(unittest.TestCase):
                    for i, (unit, fc) in enumerate(((0, 3), (0, 16), (2, 3), (2, 6)))]
         port, events = self.exercise(packets, end=.25)
         self.assertEqual(port.writes, [])
-        self.assertEqual(sum(e.code == "ignored_unit" for e in events), 4)
+        self.assertEqual(sum(e.code == "ignored_unit" for e in events), 3)
+        self.assertEqual(sum(e.code == "broadcast_processed" for e in events), 1)
 
     def test_invalid_crc_noise_and_partial_frame_recover_after_silence(self):
         good = frame(b"\x01\x03\x00\x00\x00\x02")
@@ -141,9 +142,9 @@ class RtuSlaveWireTests(unittest.TestCase):
         self.assertEqual(len(port.writes), 1)
         self.assertTrue(any(e.details.get("reason") == "frame exceeds 256 bytes" for e in events))
 
-    def test_invalid_quantity_partial_point_and_malformed_pdu(self):
-        pdus = [(b"\x03\x00\x00\x00\x00", 3), (b"\x03\x00\x01\x00\x02", 2),
-                (b"\x04\x00\x00\x00\x01", 2), (b"\x03", 3)]
+    def test_invalid_quantity_unmapped_address_and_malformed_pdu(self):
+        pdus = [(b"\x03\x00\x00\x00\x00", 3), (b"\x03\x00\x03\x00\x02", 2),
+                (b"\x04\x00\x04\x00\x01", 2), (b"\x03", 3)]
         port, _ = self.exercise([(.01 + i * .04, frame(b"\x01" + pdu)) for i, (pdu, _) in enumerate(pdus)])
         self.assertEqual([data for _, data in port.writes],
                          [frame(bytes((1, pdu[0] | 128, code))) for pdu, code in pdus])
@@ -176,14 +177,14 @@ class RtuSlaveSessionTests(unittest.TestCase):
         self.assertEqual(result["counters"]["source_updates"], 3)
 
     def test_sine_values_and_byte_orders(self):
-        read = frame(b"\x01\x03\x00\x00\x00\x02")
+        read = frame(b"\x01\x04\x00\x00\x00\x02")
         orders = {"B1234": (0, 1, 2, 3), "B4321": (3, 2, 1, 0),
                   "B2143": (1, 0, 3, 2), "B3412": (2, 3, 0, 1)}
         for order, indexes in orders.items():
             result, ports, _, _ = self.run_session(packets=[(.01, read), (.21, read)], byte_order=order,
                                                  source=dict(kind="sine", value=10, amplitude=1, frequency_hz=1.25))
             self.assertEqual(result["exit_code"], 0)
-            expected = [frame(b"\x01\x03\x04" + bytes(struct.pack(">f", value)[i] for i in indexes))
+            expected = [frame(b"\x01\x04\x04" + bytes(struct.pack(">f", value)[i] for i in indexes))
                         for value in (10, 11)]
             self.assertEqual([data for _, data in ports[0].writes], expected)
 

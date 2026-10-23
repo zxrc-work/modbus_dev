@@ -1,17 +1,12 @@
-"""Single-unit, silence-delimited read-only RTU adapter.
-
-PyModbus owns CRC and response encoding. Driver-delivered silence delimits
-requests conservatively; corrupt bursts are discarded, never scanned for a
-plausible embedded request. No flush, retries, or unbounded receive buffer.
-"""
+"""单站 RTU 读写适配器；按驱动静默划帧，坏帧整段丢弃，接收缓冲有界。"""
 from pymodbus.framer.rtu import FramerRTU
 from pymodbus.pdu.decoders import DecodePDU
 
-from .read_only import ReadOnlyRegisters
+from .rtu_registers import RtuRegisters
 from .rtu import open_serial
 
 
-class RtuSlaveEngine(ReadOnlyRegisters):
+class RtuSlaveEngine(RtuRegisters):
     MAX_FRAME = 256
 
     def __init__(self, config, control, emit, port_factory=open_serial):
@@ -92,6 +87,8 @@ class RtuSlaveEngine(ReadOnlyRegisters):
                     attempted_data=frame.hex(), sent_s=sent, returned_s=finished)
         if count != len(frame):
             raise OSError("Short RTU response write")
+        # 只有驱动完整接收发送缓冲区后，实时区才显示该次 TX 数值。
+        self.response_submitted(sent)
         # write() returning is not proof of physical transmission completion.
         self.quiet_until = max(finished, sent + len(frame) *
                                self.config.serial.bits_per_character / self.config.serial.baud) + gap

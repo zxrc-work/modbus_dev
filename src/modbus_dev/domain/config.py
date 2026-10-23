@@ -162,6 +162,8 @@ class TaskConfig:
     points: tuple[PointConfig, ...] = field(default_factory=lambda: tuple(
         default_point(i) for i in range(MAX_POINTS)))
     byte_order: str = "B1234"
+    access_mode: str = "read-write"
+    master_operation: str = "write-multiple"
     read_function: int = 3
     readback_every: int = 0
     period_ms: int = 100
@@ -176,6 +178,11 @@ class TaskConfig:
     @classmethod
     def from_mapping(cls, data):
         data = dict(section(data, "config", (*cls.__dataclass_fields__, "addresses", "source")))
+        # 旧从站配置继续保持只读权限，不因升级悄悄开放写入。
+        if data.get("mode") == "rtu-slave":
+            data.setdefault("access_mode", "read-only")
+        if data.get("access_mode") == "read-only":
+            data.setdefault("master_operation", "read-input")
         version = data.get("schema_version", 2 if "points" in data else 1)
         number(version, "schema_version", 1, 2, True)
         number(data.get("period_ms", 100), "period_ms", 1, 60000, True)
@@ -212,6 +219,11 @@ class TaskConfig:
         number(self.schema_version, "schema_version", 2, 2, True)
         choice(self.mode, "mode", ("rtu-master", "rtu-slave", "tcp-slave"))
         choice(self.policy, "policy", ("continuous", "strict"))
+        choice(self.access_mode, "access_mode", ("read-only", "read-write"))
+        from .operations import OPERATIONS
+        choice(self.master_operation, "master_operation", tuple(OPERATIONS))
+        if self.mode == "rtu-master" and self.access_mode == "read-only" and self.master_function in (6, 16):
+            fail("master_operation", "只读主站不能执行写入操作")
         number(self.unit, "unit", 1, 247, True)
         number(self.period_ms, "period_ms", 1, 60000, True)
         number(self.schedule_tolerance_percent, "schedule_tolerance_percent", 0, 100)
@@ -237,6 +249,10 @@ class TaskConfig:
         self.logging.validate()
         if self.mode != "rtu-master" and self.readback_every:
             fail("readback_every", "readback is only supported in RTU master mode")
+        if self.mode == "rtu-master" and self.master_function in (3, 4) and self.readback_every:
+            fail("readback_every", "纯读取操作不需要写后读回")
+        if self.mode == "rtu-master" and self.readback_every and self.read_function != 3:
+            fail("read_function", "写入保持寄存器后只能用 FC03 验证，FC04 是独立输入区")
         if self.mode == "rtu-master":
             from .wire import minimum_cycle_ms
             minimum = minimum_cycle_ms(self)
@@ -250,6 +266,11 @@ class TaskConfig:
     @property
     def enabled_points(self):
         return tuple(point for point in self.points if point.enabled)
+
+    @property
+    def master_function(self):
+        from .operations import OPERATIONS
+        return OPERATIONS[self.master_operation]
 
     @property
     def addresses(self):

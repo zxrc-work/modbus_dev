@@ -1,4 +1,4 @@
-"""Read-only server session with an independent absolute source clock."""
+"""从站保留独立源时钟；RTU 保持区与输入区由通信适配器分开管理。"""
 import traceback
 
 from ..domain.mapping import write_requests
@@ -28,6 +28,7 @@ def run_slave(runner):
             runner._state("starting")
             source = SyntheticSource(runner.config)
             def emit(event):
+                runner.live.consume(event)
                 runner.counters[event.code] += 1
                 runner.journal.emit(event)
             factory = runner.engine_factory or DefaultEngine
@@ -56,7 +57,7 @@ def run_slave(runner):
             period = runner.config.period_ms / 1000
             end = origin + runner.config.duration_s if runner.config.duration_s else float("inf")
             slot = -1
-            runner._emit("session_started", "Read-only server session started", mode=runner.config.mode,
+            runner._emit("session_started", "Server session started", mode=runner.config.mode,
                          address=runner.engine.bound_address)
             while runner.control.now() < end:
                 runner.control.check()
