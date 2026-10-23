@@ -32,8 +32,8 @@ Windows 设置 `PreferFullHinting`，日志使用等宽字体并继承同一渲�
 Qt 负责逐显示器 DPI 感知、窗口跨屏缩放和按实际像素渲染；不关闭系统高 DPI 缩放，
 也不把低分辨率界面截图拉大。参见 [Qt 高 DPI 文档](https://doc.qt.io/qt-6/highdpi.html)。
 
-这次处理覆盖源码入口 `python -m modbus_dev gui` 和 `modbus-dev-gui`。
-独立 exe 安装包尚未交付；后续打包需另加 Per-Monitor V2 清单并验证实际 exe，不能用源码窗口测试代替。
+源码入口 `python -m modbus_dev gui` 和 `modbus-dev-gui` 共用字体与 DPI 初始化。
+Windows 打包时需嵌入 Per-Monitor V2 清单，并验证实际 EXE。
 
 ## 预览和回归
 

@@ -1,9 +1,10 @@
 # 验证记录归档
 
-本目录保存每轮验证报告与精简 JSON 摘要，纳入 Git 版本管理；不保存完整运行产物。
+本目录保存典型测试的简洁总结与必要的精简 JSON 摘要，纳入 Git 版本管理；详细结果放在 `results/`。
 
 ## 记录索引
 
+- [阶段实施记录](../implementation.md)
 - [2026-10-23 四测点独立数据与设置页源码验证](points-20261023.md)
 - [2026-10-23 Windows x64 Cython 便携包实包验收](packaging-windows-20261023.md)
 - [2026-10-23 macOS arm64 Cython 便携包实包验收](packaging-macos-20261023.md)

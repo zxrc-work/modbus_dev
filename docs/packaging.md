@@ -4,14 +4,14 @@
 
 同一套发布流程，分别在目标系统的 64 位原生 Python 中构建：
 
-| 目标 | 系统 / CPU | 当前验收安排 |
-|---|---|---|
-| `macos-arm64` | macOS / Apple Silicon | 本机实际构建及解压验收 |
-| `windows-x64` | Windows / x64 | 已在 Windows 11 原生构建及解压验收 |
-| `kylin-x86_64` | 麒麟 / x86_64 | 构建适配，交由麒麟电脑实测 |
+| 目标 | 系统 / CPU |
+|---|---|
+| `macos-arm64` | macOS / Apple Silicon |
+| `windows-x64` | Windows / x64 |
+| `kylin-x86_64` | 麒麟 / x86_64 |
 
 不能在 Mac 上生成 Windows 或麒麟可运行包，不把跨平台 spec 单元测试当实包通过。
-macOS 的最低版本、Intel Mac、麒麟其他版本或架构均不由本机验收推导。麒麟应在计划支持的
+各系统版本与 CPU 架构需分别验证。麒麟应在计划支持的
 最老系统基线上构建，并验证 glibc、Qt 平台插件、字体和桌面环境；不修改系统 Python。
 
 ## 双入口与管道
@@ -62,7 +62,7 @@ python3.12 -m venv .venv-build-macos-arm64
 .venv-build-macos-arm64/bin/python build_release.py --target macos-arm64
 ```
 
-### Windows x64（已原生实测）
+### Windows x64
 
 ```powershell
 py -3.12 -m venv .venv-build-windows-x64
@@ -73,23 +73,19 @@ py -3.12 -m venv .venv-build-windows-x64
 构建器会执行实际 GUI 原生 DPI 检查，但 Windows 虚拟/物理 COM 互操作仍需补充，
 验收回执对此明确保留待验收状态。现场串口必须明确指定，不自动选择已有设备。
 
-Windows 11 / Python 3.12.10 已完成锁定依赖构建、中文/空格路径解压和实际双入口验收，
-实际 GUI 另测 100%、125%、150%、175%、200% 缩放。结果及 COM 补测见
-[Windows 实包验收记录](../logs/validation/packaging-windows-20261023.md)。
-
 需要验收已解压包的通信时，可显式指定其 CLI；被测进程会清除开发 Python/Qt 环境和 PATH。
-下列 COM11/COM12 仅用于本轮用户指定的 HHD 虚拟串口对，其他电脑必须明确替换为自己的虚拟测试端口：
+串口参数必须明确替换为本机的一对虚拟测试端口：
 
 ```powershell
 $env:PYTHONPATH = "$PWD/src"
 $cli = '已解压目录/ModbusDev/modbus-dev.exe'
-.venv-build-windows-x64\Scripts\python.exe tools/verify_backend_communications.py --cli $cli --master COM11 --slave COM12 --output results/packaged-com-new --commit YOUR_COMMIT --seconds 20
-.venv-build-windows-x64\Scripts\python.exe tools/verify_backend_communications.py --cli $cli --master COM11 --slave COM12 --output results/packaged-contention-new --commit YOUR_COMMIT --contention-only
+.venv-build-windows-x64\Scripts\python.exe tools/verify_backend_communications.py --cli $cli --master TEST_MASTER_PORT --slave TEST_PEER_PORT --output results/packaged-com-new --commit YOUR_COMMIT --seconds 20
+.venv-build-windows-x64\Scripts\python.exe tools/verify_backend_communications.py --cli $cli --master TEST_MASTER_PORT --slave TEST_PEER_PORT --output results/packaged-contention-new --commit YOUR_COMMIT --contention-only
 ```
 
 `--cli` 不与 `--gui-only` 混用；后者通过源码 GUI 驱动工作进程，不能作为发布版 GUI 验收。
 
-### 麒麟 x86_64（待原生实测）
+### 麒麟 x86_64
 
 ```sh
 python3.12 -m venv .venv-build-kylin-x86_64
@@ -97,7 +93,7 @@ python3.12 -m venv .venv-build-kylin-x86_64
 .venv-build-kylin-x86_64/bin/python build_release.py --target kylin-x86_64
 ```
 
-本轮不安装驱动、修改串口权限或防火墙，不替代真实设备验收。
+构建脚本不安装驱动、修改串口权限或防火墙，不替代真实设备验收。
 
 ## 发布门禁及证据
 
@@ -125,10 +121,12 @@ python3.12 -m venv .venv-build-kylin-x86_64
 - 归档旁的 `.sha256`、`.validation.json`：归档校验和与实际执行过的验收结果。
 
 验收失败时保留第一次失败及其后复测证据，不删除首次失败来伪装一次通过。
-实际结果可精简归档到 `logs/validation/`，但不提交大体积应用、完整报文或中间源码。
+典型测试的简洁总结可放入 `logs/`；原始日志、截图、完整回执和统计放入 `results/`，由 Git 忽略。
+`docs/` 只保留构建与验证方法，不追加每轮测试结果。
+不提交大体积应用、完整报文或中间源码。
 
 ## 分发仍需单独完成的事项
 
 当前 macOS 使用 ad-hoc 签名，未使用 Developer ID，也未公证。正式外部分发前应完成
 签名、公证及带隔离属性的异机首次启动验收；不提供删除安全属性来掩盖问题的脚本。
-Windows 代码签名、安装器、自动更新、其他 CPU 架构均不在本轮交付范围。
+Windows 代码签名、安装器、自动更新、其他 CPU 架构需独立实现与验收。
