@@ -68,12 +68,12 @@ def main(argv=None):
             print(json.dumps(result, ensure_ascii=False))
             return result["exit_code"]
         result = dict(valid=True, schema_version=config.schema_version, mode=config.mode,
-                      period_ms=config.period_ms, configuration_only=True,
-                      schedule_tolerance_percent=config.schedule_tolerance_percent,
-                      schedule_tolerance_ms=config.schedule_tolerance_ms)
+                      period_ms=config.period_ms, configuration_only=True)
         if config.mode == "rtu-master":
             minimum = minimum_cycle_ms(config)
-            result.update(minimum_cycle_ms=minimum, remaining_processing_budget_ms=config.timeout_ms - minimum,
+            result.update(schedule_tolerance_percent=config.schedule_tolerance_percent,
+                          schedule_tolerance_ms=config.schedule_tolerance_ms,
+                          minimum_cycle_ms=minimum, remaining_processing_budget_ms=config.timeout_ms - minimum,
                           gap_ms=config.serial.gap_ms)
         print(json.dumps(result, ensure_ascii=False))
         return 0

@@ -63,7 +63,7 @@ class ConfigTests(unittest.TestCase):
         cases = [mapping(timeuot_ms=80), mapping(schema_version=3), mapping(unit=True),
                  mapping(unit="1"), mapping(addresses=[True]), mapping(addresses=[0, 1]),
                  mapping(duration_s=float("nan")), mapping(source=dict(amplitdue=1)),
-                 mapping(source=dict(channels="channel-1")), mapping(mode=[])]
+                 mapping(source=dict(kind="dyn", channels="channel-1")), mapping(mode=[])]
         for data in cases:
             with self.subTest(data=data), self.assertRaises(ConfigurationError):
                 TaskConfig.from_mapping(data)

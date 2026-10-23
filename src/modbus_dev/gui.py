@@ -21,6 +21,7 @@ from .domain.config import MAX_POINTS, PointConfig, TaskConfig, load_config, poi
 from .gui_points import PointEditor
 from .gui_live import RealtimePanel
 from .domain.operations import OPERATIONS
+from .domain.usage import ParameterUsage
 from .gui_theme import METRICS, application_palette, application_stylesheet, ui_font
 from .gui_widgets import CheckBox, ComboBox, WorkbenchStyle, card, label, refresh_style
 from .runtime import default_output_directory, worker_command
@@ -36,7 +37,7 @@ CHOICE_LABELS = {
 COUNTER_LABELS = {
     "source_updates": "数据更新", "slave_request": "从站请求", "rx": "接收调用", "tx": "发送调用",
     "listener_opens": "监听打开", "port_opens": "串口打开", "open_errors": "打开失败",
-    "io_errors": "I/O 错误", "write_attempts": "发送调用", "ack": "确认应答", "read": "读回应答",
+    "io_errors": "I/O 错误", "write_attempts": "请求发送", "ack": "写入确认", "read": "读取应答",
     "ack_ambiguous": "关联不确定的确认", "read_ambiguous": "关联不确定的读回",
     "exception": "协议异常", "exception_ambiguous": "关联不确定的异常", "timeout": "应答超时",
     "schedule_late": "调度迟发", "schedule_missed": "错过交易预算", "skipped_slots": "跳过周期",
@@ -73,6 +74,7 @@ class Workbench(QMainWindow):
         self.fields["mode"].currentIndexChanged.connect(self.mode_changed)
         self.fields["access_mode"].currentIndexChanged.connect(self.operation_changed)
         self.fields["master_operation"].currentIndexChanged.connect(self.operation_changed)
+        self.fields["readback_every"].textChanged.connect(self.operation_changed)
         for key in ("host", "port", "unit", "serial.port", "serial.baud"):
             self.fields[key].textChanged.connect(self.update_connection_summary)
         self.apply_config(TaskConfig.from_mapping(self.base_config))
@@ -173,7 +175,7 @@ class Workbench(QMainWindow):
         refresh.clicked.connect(self.ports)
         self.serial_box.layout().addRow(refresh)
         group(connection, "设备", [("unit", "站号", None)])
-        group(connection, "统一运行时序", [("period_ms", "数据周期 ms", None), ("timeout_ms", "I/O 超时 ms", None),
+        self.timing_box = group(connection, "统一运行时序", [("period_ms", "数据周期 ms", None), ("timeout_ms", "I/O 超时 ms", None),
                                 ("duration_s", "运行时长 s", None)])
         self.fields["period_ms"].setToolTip("所有启用测点共用一个数据时钟，各点独立计算数值。")
         self.fields["timeout_ms"].setToolTip("主站为整周期交易预算；从站为单次写等待上限，不是轮询周期。")
@@ -189,9 +191,9 @@ class Workbench(QMainWindow):
 
         data = page("数据设置")
         group(data, "公共编码", [("byte_order", "字节序", ["B1234", "B4321", "B2143", "B3412"])])
-        note = label("同一设备 · 每点独立数据源 · 共用周期与 float32 字节序", "caption")
-        note.setWordWrap(True)
-        data.addWidget(note)
+        self.data_note = label("", "caption")
+        self.data_note.setWordWrap(True)
+        data.addWidget(self.data_note)
         self.points_status = label("", "caption")
         self.points_status.setWordWrap(True)
         data.addWidget(self.points_status)
@@ -334,7 +336,7 @@ class Workbench(QMainWindow):
                 field.setCurrentIndex(field.findData(text))
             else:
                 field.setText(text)
-        self.rts.setChecked(config.serial.rts_toggle)
+        self.rts.setChecked(config.serial.rts_toggle is True)
         for editor, point in zip(self.point_editors, config.points):
             editor.apply_point(point)
         self.live_panel.configure(config)
@@ -343,11 +345,24 @@ class Workbench(QMainWindow):
 
     def configuration(self):
         data = json.loads(json.dumps(self.base_config))
+        usage = self.parameter_usage()
         integers = {"unit", "port", "period_ms", "timeout_ms", "readback_every", "read_function",
                     "serial.baud", "serial.stop_bits", "logging.max_files"}
         floats = {"duration_s", "schedule_tolerance_percent"}
         for key in self.fields:
             value = self.text(key)
+            if not usage.field_active(key):
+                original = self.base_config
+                for part in key.split("."):
+                    original = original[part]
+                if value == str(original) or (isinstance(self.fields[key], QComboBox) and self.fields[key].currentIndex() < 0):
+                    value = original
+                if "." in key:
+                    parent, name = key.split(".")
+                    data[parent][name] = value
+                else:
+                    data[key] = value
+                continue
             try:
                 if key in integers:
                     value = int(value)
@@ -360,22 +375,30 @@ class Workbench(QMainWindow):
                 data[parent][name] = value
             else:
                 data[key] = value
-        data["serial"]["rts_toggle"] = self.rts.isChecked()
+        if usage.field_active("serial.rts_toggle"):
+            data["serial"]["rts_toggle"] = self.rts.isChecked()
         data["points"] = [editor.configuration() for editor in self.point_editors]
-        if data["mode"] != "rtu-master":
-            data["readback_every"] = 0
-        elif OPERATIONS[data["master_operation"]] in (3, 4):
-            data["readback_every"] = 0
         config = TaskConfig.from_mapping(data)
         check_capabilities(config)
         return config
 
+    def parameter_usage(self):
+        try:
+            readback = int(self.text("readback_every"))
+        except ValueError:
+            readback = 0
+        return ParameterUsage(self.text("mode"), self.text("master_operation"), readback)
+
     def mode_changed(self, *_):
         mode = self.text("mode")
         self.tcp_box.setVisible(mode == "tcp-slave")
+        self.tcp_box.setEnabled(mode == "tcp-slave")
         self.serial_box.setVisible(mode != "tcp-slave")
+        self.serial_box.setEnabled(mode != "tcp-slave")
         self.access_box.setVisible(mode != "tcp-slave")
+        self.access_box.setEnabled(mode != "tcp-slave")
         self.master_box.setVisible(mode == "rtu-master")
+        self.master_box.setEnabled(mode == "rtu-master")
         self.operation_changed()
         refresh_style(self.hint)
         self.update_connection_summary()
@@ -387,22 +410,48 @@ class Workbench(QMainWindow):
         operation = self.fields["master_operation"]
         for index in range(operation.count()):
             operation.model().item(index).setEnabled(not readonly or OPERATIONS[operation.itemData(index)] in (3, 4))
-        if readonly and self.text("master_operation") in ("write-single", "write-multiple"):
+        if mode == "rtu-master" and readonly and self.text("master_operation") in ("write-single", "write-multiple"):
             operation.setCurrentIndex(operation.findData("read-input"))
-        writing = self.text("master_operation") in ("write-single", "write-multiple")
-        self.fields["readback_every"].setEnabled(writing)
+        usage = self.parameter_usage()
+        for key, widget in self.fields.items():
+            widget.setEnabled(usage.field_active(key))
         self.fields["read_function"].setEnabled(False)
-        self.fields["read_function"].setCurrentIndex(self.fields["read_function"].findData("3"))
-        if mode == "rtu-master":
-            text = ("写入保持寄存器；可通过 FC03 写后读回。FC06 的 float32 分两笔写入。" if writing else
-                    "只发送读取请求，不先写入；FC03 读保持区，FC04 读输入区波形。")
+        if usage.readback:
+            self.fields["read_function"].setCurrentIndex(self.fields["read_function"].findData("3"))
+        self.fields["read_function"].setToolTip("写后读回固定使用 FC03；只有启用写后读回时生效。")
+        self.fields["readback_every"].setToolTip("每 N 周期用 FC03 读回；0 关闭。" if usage.writing else
+                                               "纯读取或从站模式不执行写后读回。")
+        self.rts.setEnabled(usage.field_active("serial.rts_toggle"))
+        self.rts.setToolTip("仅 Windows 串口驱动支持；其他平台忽略此项。")
+        for editor in self.point_editors:
+            editor.set_usage(usage)
+        timing = self.timing_box.layout()
+        timing.labelForField(self.fields["period_ms"]).setText("轮询周期 ms" if usage.master else "数据更新周期 ms")
+        self.fields["period_ms"].setAccessibleName("轮询周期 ms" if usage.master else "数据更新周期 ms")
+        timeout_caption = "周期通信预算 ms" if usage.master else "应答写超时 ms" if usage.serial else "不完整请求超时 ms"
+        timing.labelForField(self.fields["timeout_ms"]).setText(timeout_caption)
+        self.fields["timeout_ms"].setAccessibleName(timeout_caption)
+        self.fields["period_ms"].setToolTip("按绝对周期发送读取或写入请求。" if usage.master else
+                                           "按独立时钟更新数据源，不依赖主站轮询。")
+        self.fields["timeout_ms"].setToolTip("整个周期的交易预算，包含等待静默和多笔请求。" if usage.master else
+            "单次应答写等待，实际最多 50 ms。" if usage.serial else "接收不完整请求的固定期限，实际至少 1000 ms。")
+        if usage.master:
+            self.data_note.setText("设置对方测点地址和字节序；本机数据源生成待写入值。" if usage.writing else
+                                   "设置对方测点地址和字节序；接收值由从站提供，本机数据源不参与读取。")
         elif mode == "rtu-slave":
-            text = ("只读从站 · FC03/04；写入请求返回异常应答。" if readonly else
-                    "读写从站 · FC03/04/06/16；保持区保存写入，输入区独立生成波形。")
+            self.data_note.setText("数据源持续更新输入区，仅在会话开始时初始化保持区；主站写入值不会被波形覆盖。")
+        else:
+            self.data_note.setText("数据源更新 TCP 只读快照，供客户端通过 FC03/04 读取。")
+        if mode == "rtu-master":
+            text = ("本机生成写入数据，向对方保持区写入；可通过 FC03 读回。" if usage.writing else
+                    "发送读取请求，接收对方寄存器数值；不生成本机写入数据。")
+        elif mode == "rtu-slave":
+            text = ("只读从站：本机数据源更新输入区，保持区仅初始化；拒绝主站写入。" if readonly else
+                    "读写从站：本机数据源更新输入区，保持区初始化后保留主站写入值。")
         else:
             text = "TCP 保持原有只读行为；本轮不扩展 TCP 写入。"
         self.hint.setText(text)
-        self.hint.setProperty("writing", mode == "rtu-master" and writing)
+        self.hint.setProperty("writing", usage.writing)
         refresh_style(self.hint)
 
     def update_points_summary(self):

@@ -13,6 +13,7 @@ from ..domain.transactions import Reply
 
 
 def open_serial(config):
+    import os
     import serial
     port = serial.Serial(port=None, baudrate=config.baud, bytesize=8,
                          parity=config.parity, stopbits=config.stop_bits,
@@ -20,11 +21,10 @@ def open_serial(config):
     try:
         port.dtr = True
         port.rts = False
-        if config.rts_toggle:
+        if os.name == "nt" and config.rts_toggle:
             from serial.rs485 import RS485Settings
             port.rs485_mode = RS485Settings()
         # Ask POSIX for an exclusive port; Windows already uses exclusive opens.
-        import os
         if os.name == "posix":
             port.exclusive = True
         port.port = config.port

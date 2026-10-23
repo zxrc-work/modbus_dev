@@ -163,9 +163,18 @@ class RealtimePanel(QWidget):
                 for direction in ("tx", "rx"):
                     key = f"{area}:{index}:{direction}"
                     checkbox = CheckBox(f"{point.name or f'测点 {index + 1}'} · {AREA_NAMES[area]} · {direction.upper()}")
-                    checkbox.setChecked(True)
+                    if config.mode == "rtu-master":
+                        used = config.usage.writing if direction == "tx" else not config.usage.writing or config.usage.readback
+                    elif config.mode == "rtu-slave":
+                        used = direction == "tx" or (area == "holding" and config.access_mode == "read-write")
+                    else:
+                        used = False  # TCP 当前未发布实时寄存器数值快照。
+                    checkbox.setEnabled(used)
+                    checkbox.setChecked(used)
+                    if not used:
+                        checkbox.setToolTip("当前操作不提供该方向的实时数值；原始通信记录仍保存到事件日志。")
                     color, _ = self.series_style(key)
-                    checkbox.setStyleSheet(f"color: {color};")
+                    checkbox.setStyleSheet(f"color: {color if used else COLORS['muted']};")
                     checkbox.toggled.connect(lambda _: self.plot.update())
                     self.legend.addWidget(checkbox, len(self.selectors) // 2, len(self.selectors) % 2)
                     self.selectors[key] = checkbox
@@ -177,7 +186,7 @@ class RealtimePanel(QWidget):
         return color, Qt.SolidLine if direction == "tx" else Qt.DashLine
 
     def selected(self, key):
-        return key in self.selectors and self.selectors[key].isChecked()
+        return key in self.selectors and self.selectors[key].isEnabled() and self.selectors[key].isChecked()
 
     def ingest(self, snapshot):
         # 状态管道只保存最后一份，不将每个报文推入界面队列。

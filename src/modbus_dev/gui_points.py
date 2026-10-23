@@ -19,6 +19,8 @@ class PointEditor(QGroupBox):
         super().__init__(f"测点 {index + 1}", parent)
         self.index = index
         self._loading = False
+        self._source_used = True
+        self._source_tip = ""
         self._point = PointConfig(enabled=False)
         self.setObjectName(f"point-{index + 1}")
         layout = QVBoxLayout(self)
@@ -67,13 +69,33 @@ class PointEditor(QGroupBox):
         active = self.enabled.isChecked()
         self.body.setVisible(active)
         sine = self.fields["source.kind"].currentData() == "sine"
+        for key in ("source.kind", "source.value"):
+            self.fields[key].setEnabled(active and self._source_used)
+            self.form.labelForField(self.fields[key]).setEnabled(active and self._source_used)
+            self.fields[key].setToolTip(self._source_tip if self._source_used else
+                                        "纯读取不生成本机数据；接收值由对方从站提供。")
         self.form.labelForField(self.fields["source.value"]).setText("偏置" if sine else "数值")
         for key in ("source.amplitude", "source.frequency_hz"):
             self.fields[key].setVisible(sine)
-            self.fields[key].setEnabled(sine and active)
+            self.fields[key].setEnabled(sine and active and self._source_used)
+            self.form.labelForField(self.fields[key]).setEnabled(sine and active and self._source_used)
+            self.fields[key].setToolTip("" if self._source_used else "纯读取不生成本机波形。")
             self.form.labelForField(self.fields[key]).setVisible(sine)
         self.set_conflict(False)
         self.changed.emit()
+
+    def set_usage(self, usage):
+        self._source_used = usage.source
+        if usage.master:
+            self._source_tip = "生成主站写入对方保持区的数值。"
+        elif usage.mode == "rtu-slave":
+            self._source_tip = "数据源持续更新输入区，仅初始化一次保持区；后续源更新不会改变保持区。"
+        else:
+            self._source_tip = "更新供 TCP 客户端读取的寄存器快照。"
+        caption = ("写入起始地址" if usage.writing else "读取起始地址") if usage.master else "本机起始地址"
+        self.form.labelForField(self.fields["address"]).setText(caption)
+        self.fields["address"].setAccessibleName(f"测点 {self.index + 1} · {caption}")
+        self._changed()
 
     def set_conflict(self, conflict):
         address = self.fields["address"].value()
@@ -88,8 +110,9 @@ class PointEditor(QGroupBox):
         self._point = point
         try:
             self.enabled.setChecked(point.enabled)
-            self.fields["name"].setText(point.name)
-            self.fields["address"].setValue(point.address)
+            self.fields["name"].setText(str(point.name))
+            valid_address = isinstance(point.address, int) and not isinstance(point.address, bool)
+            self.fields["address"].setValue(point.address if valid_address else 0)
             kind = self.fields["source.kind"]
             kind.setPlaceholderText("此数据源暂不可用")
             kind.setCurrentIndex(kind.findData(point.source.kind))
@@ -100,21 +123,29 @@ class PointEditor(QGroupBox):
         self._changed()
 
     def configuration(self):
-        """保留暂未使用的参数；禁用点和常量源不会被隐藏输入的格式错误阻塞。"""
+        """有效参数转换为数值；无关草稿保留，切换操作后再校验。"""
         active = self.enabled.isChecked()
         kind = self.fields["source.kind"].currentData()
         if kind is None:
-            if active:
+            if active and self._source_used:
                 raise ValueError(f"测点 {self.index + 1}：请选择常量或正弦数据源")
             kind = self._point.source.kind
         data = asdict(self._point)
         data.update(enabled=active, name=self.fields["name"].text().strip(),
                     address=self.fields["address"].value())
+        if not active and not (isinstance(self._point.address, int) and not isinstance(self._point.address, bool)
+                               and 0 <= self._point.address <= 65536 - REGISTERS_PER_POINT):
+            data["address"] = self._point.address
         data["source"]["kind"] = kind
         for key, caption in (("value", "数值 / 偏置"), ("amplitude", "振幅"), ("frequency_hz", "频率 Hz")):
+            draft = self.fields["source." + key].text().strip()
+            used = active and self._source_used and (key == "value" or kind == "sine")
+            if not used:
+                if draft != str(data["source"][key]):
+                    data["source"][key] = draft
+                continue
             try:
-                data["source"][key] = float(self.fields["source." + key].text().strip())
+                data["source"][key] = float(draft)
             except ValueError:
-                if active and (key == "value" or kind == "sine"):
-                    raise ValueError(f"测点 {self.index + 1} · {caption}：请填写有效数字") from None
+                raise ValueError(f"测点 {self.index + 1} · {caption}：请填写有效数字") from None
         return data

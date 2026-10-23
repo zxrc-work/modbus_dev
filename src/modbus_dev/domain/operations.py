@@ -8,11 +8,17 @@ OPERATIONS = {
 }
 
 
-def primary_requests(config, values):
-    groups = write_requests(config.addresses, values, config.byte_order)
+def primary_requests(config, values=()):
     function = OPERATIONS[config.master_operation]
     if function in (3, 4):
-        return [Request(function, group.address, group.count) for group in groups]
+        groups = []
+        for address in sorted(config.addresses):
+            if groups and groups[-1][0] + groups[-1][1] == address:
+                groups[-1][1] += 2
+            else:
+                groups.append([address, 2])
+        return [Request(function, address, count) for address, count in groups]
+    groups = write_requests(config.addresses, values, config.byte_order)
     if function == 6:
         # 一个 float32 占两个寄存器，FC06 必须拆成两次独立写入，不宣称原子性。
         return [Request(6, group.address + offset, 1, (word,))
@@ -20,7 +26,7 @@ def primary_requests(config, values):
     return groups
 
 
-def cycle_requests(config, values, readback=False):
+def cycle_requests(config, values=(), readback=False):
     requests = primary_requests(config, values)
     if readback and config.master_function in (6, 16):
         groups = write_requests(config.addresses, values, config.byte_order)

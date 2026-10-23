@@ -8,7 +8,8 @@ def minimum_cycle_ms(config):
     Readback configs reserve their busiest slot, not an average over slots.
     """
     from .operations import cycle_requests
-    requests = cycle_requests(config, [0.] * len(config.addresses), bool(config.readback_every))
+    values = [0.] * len(config.addresses) if config.usage.source else ()
+    requests = cycle_requests(config, values, config.usage.readback)
     wire_bytes, transactions = 0, 0
     for request in requests:
         request_bytes = 9 + 2 * request.count if request.function == 16 else 8

@@ -148,8 +148,8 @@ class OperationTests(unittest.TestCase):
             with self.assertRaises(ConfigurationError):
                 TaskConfig.from_mapping(dict(mode="rtu-master", serial=dict(port="TEST"),
                                              access_mode="read-only", master_operation=operation))
-        with self.assertRaises(ConfigurationError):
-            config("rtu-master", master_operation="read-input", readback_every=1)
+        settings = config("rtu-master", master_operation="read-input", readback_every=1)
+        self.assertFalse(settings.usage.readback)
         with self.assertRaises(ConfigurationError):
             config("rtu-master", readback_every=1, read_function=4)
         with self.assertRaises(ConfigurationError):

@@ -6,6 +6,7 @@ from pathlib import Path
 import struct
 
 from .events import ConfigurationError
+from .usage import ParameterUsage
 
 MAX_POINTS = 4
 REGISTERS_PER_POINT = 2
@@ -64,7 +65,7 @@ class SerialConfig:
         number(self.baud, "serial.baud", 1200, 1000000, True)
         choice(self.parity, "serial.parity", ("N", "E", "O"))
         number(self.stop_bits, "serial.stop_bits", 1, 2, True)
-        if not isinstance(self.rts_toggle, bool):
+        if ParameterUsage("rtu-master").rts_supported and not isinstance(self.rts_toggle, bool):
             fail("serial.rts_toggle", "must be a boolean")
 
 
@@ -78,22 +79,28 @@ class SourceConfig:
     channels: tuple[str, ...] = ()
 
     @classmethod
-    def from_mapping(cls, data, path="source"):
+    def from_mapping(cls, data, path="source", *, active=True):
         data = dict(section(data, path, cls.__dataclass_fields__))
         channels = data.get("channels", [])
-        if not isinstance(channels, (list, tuple)) or any(not isinstance(c, str) for c in channels):
+        if isinstance(channels, (list, tuple)):
+            channels = tuple(channels)
+        elif active and data.get("kind") == "dyn":
             fail(path + ".channels", "must be an array of strings")
-        data["channels"] = tuple(channels)
+        data["channels"] = channels
         return cls(**data)
 
     def validate(self, period_ms, points=1, path="source", *, active=True):
+        if not active:
+            return
         choice(self.kind, path + ".kind", ("constant", "sine", "dyn"))
-        number(self.value, path + ".value", -3.4028234e38, 3.4028234e38)
-        number(self.amplitude, path + ".amplitude", 0, 3.4028234e38)
-        number(self.frequency_hz, path + ".frequency_hz", 0, 1e6)
-        if active and self.kind == "sine" and not 0 < self.frequency_hz < 500 / period_ms:
-            fail(path + ".frequency_hz", "must be positive and below output Nyquist frequency")
-        if active and self.kind in ("constant", "sine"):
+        if self.kind in ("constant", "sine"):
+            number(self.value, path + ".value", -3.4028234e38, 3.4028234e38)
+        if self.kind == "sine":
+            number(self.amplitude, path + ".amplitude", 0, 3.4028234e38)
+            number(self.frequency_hz, path + ".frequency_hz", 0, 1e6)
+            if not 0 < self.frequency_hz < 500 / period_ms:
+                fail(path + ".frequency_hz", "must be positive and below output Nyquist frequency")
+        if self.kind in ("constant", "sine"):
             amplitude = self.amplitude if self.kind == "sine" else 0
             try:
                 for value in (self.value - amplitude, self.value + amplitude):
@@ -101,13 +108,15 @@ class SourceConfig:
                         raise OverflowError()
             except (OverflowError, struct.error):
                 fail(path, "signal exceeds finite float32 range")
-        if active and self.kind == "dyn":
+        if self.kind == "dyn":
             text(self.path, path + ".path")
+            if not isinstance(self.channels, (list, tuple)) or any(not isinstance(c, str) for c in self.channels):
+                fail(path + ".channels", "must be an array of strings")
             if len(self.channels) != points or len(set(self.channels)) != points:
                 fail(path + ".channels", "provide one unique channel per point")
             choice(period_ms, "period_ms for DYN", (100, 200, 250, 500, 1000))
-        for channel in self.channels:
-            text(channel, path + ".channels")
+            for channel in self.channels:
+                text(channel, path + ".channels")
 
 
 @dataclass(frozen=True)
@@ -119,18 +128,21 @@ class PointConfig:
     source: SourceConfig = field(default_factory=SourceConfig)
 
     @classmethod
-    def from_mapping(cls, data, path):
+    def from_mapping(cls, data, path, *, source_used=True):
         data = dict(section(data, path, cls.__dataclass_fields__))
-        data["source"] = SourceConfig.from_mapping(data.get("source", {}), path + ".source")
+        data["source"] = SourceConfig.from_mapping(data.get("source", {}), path + ".source",
+                                                 active=source_used and data.get("enabled", True) is True)
         return cls(**data)
 
-    def validate(self, period_ms, path):
+    def validate(self, period_ms, path, *, source_used=True):
         if not isinstance(self.enabled, bool):
             fail(path + ".enabled", "must be a boolean")
+        if not self.enabled:
+            return
         if not isinstance(self.name, str):
             fail(path + ".name", "must be a string")
         number(self.address, path + ".address", 0, 65536 - REGISTERS_PER_POINT, True)
-        self.source.validate(period_ms, path=path + ".source", active=self.enabled)
+        self.source.validate(period_ms, path=path + ".source", active=source_used)
 
 
 def default_point(index):
@@ -183,6 +195,7 @@ class TaskConfig:
             data.setdefault("access_mode", "read-only")
         if data.get("access_mode") == "read-only":
             data.setdefault("master_operation", "read-input")
+        usage = ParameterUsage(data.get("mode", "rtu-master"), data.get("master_operation", "write-multiple"))
         version = data.get("schema_version", 2 if "points" in data else 1)
         number(version, "schema_version", 1, 2, True)
         number(data.get("period_ms", 100), "period_ms", 1, 60000, True)
@@ -192,12 +205,13 @@ class TaskConfig:
             addresses = data.pop("addresses", [0])
             if not isinstance(addresses, (list, tuple)) or not 1 <= len(addresses) <= MAX_POINTS:
                 fail("addresses", f"provide 1..{MAX_POINTS} float32 point addresses")
-            source = SourceConfig.from_mapping(data.pop("source", {}))
-            source.validate(data.get("period_ms", 100), len(addresses))
+            source = SourceConfig.from_mapping(data.pop("source", {}), active=usage.source)
+            source.validate(data.get("period_ms", 100), len(addresses), active=usage.source)
             # 旧版共享源只在加载边界展开；运行时始终使用每点独立配置。
             points = []
             for i, address in enumerate(addresses):
-                point_source = replace(source, channels=(source.channels[i],)) if source.kind == "dyn" else source
+                point_source = (replace(source, channels=(source.channels[i],))
+                                if usage.source and source.kind == "dyn" else source)
                 points.append(PointConfig(address=address, source=point_source))
         else:
             if "addresses" in data or "source" in data:
@@ -205,7 +219,7 @@ class TaskConfig:
             raw_points = data.pop("points", [asdict(default_point(0))])
             if not isinstance(raw_points, (list, tuple)) or not 1 <= len(raw_points) <= MAX_POINTS:
                 fail("points", f"provide 1..{MAX_POINTS} point configurations")
-            points = [PointConfig.from_mapping(point, f"points[{i}]")
+            points = [PointConfig.from_mapping(point, f"points[{i}]", source_used=usage.source)
                       for i, point in enumerate(raw_points)]
         points.extend(default_point(i) for i in range(len(points), MAX_POINTS))
         data["points"], data["schema_version"] = tuple(points), 2
@@ -219,40 +233,41 @@ class TaskConfig:
         number(self.schema_version, "schema_version", 2, 2, True)
         choice(self.mode, "mode", ("rtu-master", "rtu-slave", "tcp-slave"))
         choice(self.policy, "policy", ("continuous", "strict"))
-        choice(self.access_mode, "access_mode", ("read-only", "read-write"))
+        usage = self.usage
+        if usage.serial:
+            choice(self.access_mode, "access_mode", ("read-only", "read-write"))
         from .operations import OPERATIONS
-        choice(self.master_operation, "master_operation", tuple(OPERATIONS))
+        if usage.master:
+            choice(self.master_operation, "master_operation", tuple(OPERATIONS))
         if self.mode == "rtu-master" and self.access_mode == "read-only" and self.master_function in (6, 16):
             fail("master_operation", "只读主站不能执行写入操作")
         number(self.unit, "unit", 1, 247, True)
         number(self.period_ms, "period_ms", 1, 60000, True)
-        number(self.schedule_tolerance_percent, "schedule_tolerance_percent", 0, 100)
+        if usage.master:
+            number(self.schedule_tolerance_percent, "schedule_tolerance_percent", 0, 100)
         number(self.timeout_ms, "timeout_ms", 1, 60000, True)
         number(self.duration_s, "duration_s", 0, 86400 * 365)
-        number(self.readback_every, "readback_every", 0, 1000000, True)
-        number(self.read_function, "read_function", 3, 4, True)
+        if usage.writing:
+            number(self.readback_every, "readback_every", 0, 1000000, True)
+        if usage.readback:
+            number(self.read_function, "read_function", 3, 3, True)
         choice(self.byte_order, "byte_order", ("B1234", "B4321", "B2143", "B3412"))
         if not 1 <= len(self.points) <= MAX_POINTS:
             fail("points", f"provide 1..{MAX_POINTS} point configurations")
         for i, point in enumerate(self.points):
-            point.validate(self.period_ms, f"points[{i}]")
+            point.validate(self.period_ms, f"points[{i}]", source_used=usage.source)
         if not self.enabled_points:
             fail("points", "请至少启用一个测点")
         conflicts = point_conflicts(self.points)
         if conflicts:
             first, second = conflicts[0]
             fail("points", f"测点 {first + 1} 与测点 {second + 1} 的寄存器范围重叠")
-        if self.mode.startswith("rtu"):
+        if usage.serial:
             self.serial.validate()
-        text(self.host, "host")
-        number(self.port, "port", 1, 65535, True)
+        else:
+            text(self.host, "host")
+            number(self.port, "port", 1, 65535, True)
         self.logging.validate()
-        if self.mode != "rtu-master" and self.readback_every:
-            fail("readback_every", "readback is only supported in RTU master mode")
-        if self.mode == "rtu-master" and self.master_function in (3, 4) and self.readback_every:
-            fail("readback_every", "纯读取操作不需要写后读回")
-        if self.mode == "rtu-master" and self.readback_every and self.read_function != 3:
-            fail("read_function", "写入保持寄存器后只能用 FC03 验证，FC04 是独立输入区")
         if self.mode == "rtu-master":
             from .wire import minimum_cycle_ms
             minimum = minimum_cycle_ms(self)
@@ -262,6 +277,10 @@ class TaskConfig:
 
     def to_mapping(self):
         return asdict(self)
+
+    @property
+    def usage(self):
+        return ParameterUsage(self.mode, self.master_operation, self.readback_every)
 
     @property
     def enabled_points(self):

@@ -1,6 +1,5 @@
 """CLI 与 GUI 共用的单会话入口，按启用测点执行独立采样与分组通信。"""
 from collections import Counter
-import os
 from pathlib import Path
 import threading
 import traceback
@@ -20,10 +19,8 @@ _ACTIVE_SESSION = threading.Lock()
 
 def check_capabilities(config):
     config.validate()
-    if any(point.source.kind not in ("constant", "sine") for point in config.enabled_points):
+    if config.usage.source and any(point.source.kind not in ("constant", "sine") for point in config.enabled_points):
         raise ValueError("This build runs constant/sine sources only; offline sources are deferred until after GUI")
-    if config.serial.rts_toggle and os.name != "nt":
-        raise ValueError("RTS toggle currently uses the Windows driver")
 
 
 class SessionRunner:
@@ -145,7 +142,8 @@ class SessionRunner:
                 from ..engines.rtu import RtuEngine
                 self.engine_factory = RtuEngine
             from ..engines.platform import WindowsTimer
-            source = SyntheticSource(self.config)
+            usage = self.config.usage
+            source = SyntheticSource(self.config) if usage.source else None
             self.journal = self.journal_factory(self.directory, self.config.to_mapping())
             self.control.health_check = self._health
             started = self.control.now()
@@ -171,7 +169,7 @@ class SessionRunner:
                             raise
                         reconnect_at = self.control.now() + 1
                         self._state("reconnecting")
-                    # Establish the source clock after initial COM setup.
+                    # Establish the request schedule after initial COM setup.
                     origin = self.control.now() + .1
                     schedule = AbsoluteSchedule(origin, self.config.period_ms / 1000,
                                                 self.config.timeout_ms / 1000, self.config.policy)
@@ -209,8 +207,8 @@ class SessionRunner:
                                 continue
                         self.control.check()
                         self.current_slot, self.current_scheduled = slot, decision.scheduled_s
-                        values = source.sample(slot)
-                        readback = bool(self.config.readback_every and slot % self.config.readback_every == 0)
+                        values = source.sample(slot) if source is not None else ()
+                        readback = usage.readback and slot % self.config.readback_every == 0
                         requests = cycle_requests(self.config, values, readback)
                         # Reserve the complete remaining group plan before the first write.
                         minimum = sum(self.engine.minimum_s(r) for r in requests)
@@ -222,7 +220,8 @@ class SessionRunner:
                                 raise RuntimeError("Strict replay has insufficient cycle budget")
                             slot += 1
                             continue
-                        self._emit("source_sample", "Source values prepared", "DEBUG", "source", slot=slot, values=values)
+                        if source is not None:
+                            self._emit("source_sample", "Source values prepared", "DEBUG", "source", slot=slot, values=values)
                         try:
                             for request in requests:
                                 reply = self._transaction(request, decision.deadline_s, slot, decision.scheduled_s)
