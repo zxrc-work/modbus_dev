@@ -41,6 +41,7 @@ def live_packets(payload, runner):
         return
     while True:
         live = runner.live.snapshot(runner.control.now(), runner.state, drain=True)
+        live["ack_correlation_uncertain"] = bool(getattr(getattr(runner, "engine", None), "uncertain", False))
         if payload["type"] == "result" and live["samples_pending"]:
             # 最终结果之前把剩余点分包送完，不能让单条 JSON 无限变大。
             yield dict(schema_version=1, type="status", state=runner.state,

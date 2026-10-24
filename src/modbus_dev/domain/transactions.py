@@ -2,6 +2,12 @@
 from dataclasses import dataclass
 
 
+def valid_reply_counts(counters):
+    """Accepted frames count independently of their request-correlation certainty."""
+    return dict(valid_ack=counters.get("ack", 0) + counters.get("ack_ambiguous", 0),
+                valid_read=counters.get("read", 0) + counters.get("read_ambiguous", 0))
+
+
 @dataclass(frozen=True)
 class Request:
     function: int

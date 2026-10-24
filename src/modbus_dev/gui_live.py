@@ -20,6 +20,9 @@ QUALITY_NAMES = {"submitted": "已提交发送", "received": "已接收", "confi
                  "partial": "单寄存器 / 原始值", "ambiguous": "应答关联不确定",
                  "timeout": "应答超时", "exception": "异常应答", "bad_reply": "无效应答",
                  "readback-mismatch": "读回不一致", "nonfinite": "非有限 float32 / 原始值"}
+CONFIRMATION_NAMES = {"confirmed": "收到有效 ACK", "ambiguous": "收到有效 ACK，关联不确定",
+                      "timeout": "应答超时", "exception": "异常应答", "bad_reply": "无效 / 不完整应答",
+                      "late_reply": "应答迟到"}
 
 
 class TrendPlot(QWidget):
@@ -113,6 +116,7 @@ class RealtimePanel(QWidget):
         self.snapshot = {}
         self.pending = None
         self.running = False
+        self.correlation_uncertain = False
         self.history = TrendHistory()
         self.selectors = {}
         layout = QVBoxLayout(self)
@@ -125,6 +129,11 @@ class RealtimePanel(QWidget):
         refresh_note.setToolTip("数值表显示最新值；曲线缓存实际通信点，刷新频率不限制通信采样点数。")
         heading.addWidget(refresh_note)
         layout.addLayout(heading)
+        self.correlation_note = label("本会话曾出现应答关联不确定；后续有效应答仍正常计数，详情见日志。", "caption")
+        self.correlation_note.setObjectName("correlationHistory")
+        self.correlation_note.setWordWrap(True)
+        self.correlation_note.hide()
+        layout.addWidget(self.correlation_note)
         self.table = QTableWidget(0, 6)
         self.table.setObjectName("liveValues")
         self.table.setAccessibleName("实际收发数值")
@@ -161,6 +170,8 @@ class RealtimePanel(QWidget):
 
     def configure(self, config):
         self.snapshot, self.pending = {}, None
+        self.correlation_uncertain = False
+        self.correlation_note.hide()
         self.history.clear()
         self.update_curve_note()
         self.table.setRowCount(0)
@@ -207,6 +218,9 @@ class RealtimePanel(QWidget):
         self.history.sample(snapshot, self.clock())
         self.update_curve_note()
         self.pending = snapshot
+        if snapshot.get("ack_correlation_uncertain") and not self.correlation_uncertain:
+            self.correlation_uncertain = True
+            self.correlation_note.show()
         self.set_state(snapshot.get("state", "idle"))
 
     def set_state(self, state):
@@ -235,7 +249,7 @@ class RealtimePanel(QWidget):
         for index, (_, directions) in enumerate(sorted(grouped.items())):
             last = max(directions.values(), key=lambda row: row["sampled_s"])
             age = max(0, now - last["sampled_s"])
-            quality = QUALITY_NAMES.get(last["quality"], last["quality"])
+            quality = self.describe_row(last)
             stale = self.snapshot.get("state") != "running" or age > self.snapshot.get("stale_after_s", 1.)
             if stale:
                 quality = "已停止 / 已过期" if not self.running else "已过期 / 等待数据"
@@ -247,12 +261,20 @@ class RealtimePanel(QWidget):
                 if column in (2, 3):
                     row = directions.get("tx" if column == 2 else "rx")
                     if row:
-                        item.setToolTip(f"FC{row['function']:02d} · {QUALITY_NAMES.get(row['quality'], row['quality'])}\n"
+                        item.setToolTip(f"FC{row['function']:02d} · {self.describe_row(row)}\n"
                                         f"原始寄存器：{' '.join(f'{word:04X}' for word in row['registers'])}\n"
                                         f"距今 {max(0, now - row['sampled_s']):.3f}s")
                         if now - row["sampled_s"] > self.snapshot.get("stale_after_s", 1.) or stale:
                             item.setForeground(QColor(COLORS["muted"]))
                 self.table.setItem(index, column, item)
+
+    @staticmethod
+    def describe_row(row):
+        text = QUALITY_NAMES.get(row["quality"], row["quality"])
+        confirmation = row.get("confirmation")
+        if confirmation is not None:
+            text += " · " + CONFIRMATION_NAMES.get(confirmation, confirmation)
+        return text
 
     @staticmethod
     def format_value(row):

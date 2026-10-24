@@ -78,11 +78,55 @@ class BufferedLiveTests(unittest.TestCase):
         history.sample(live.snapshot(0., "running", drain=True), 0.)
         live.consume(Event("register_confirmation", "ack", "DEBUG", details=dict(
             area="input", direction="tx", address=0, count=2, quality="ambiguous")))
-        history.sample(live.snapshot(.1, "running", drain=True), .1)
-        self.assertEqual(list(history.series["input:0:tx"]), [(0., None)])
+        snapshot = live.snapshot(.1, "running", drain=True)
+        self.assertEqual(snapshot["rows"][0]["quality"], "submitted")
+        self.assertEqual(snapshot["rows"][0]["confirmation"], "ambiguous")
+        self.assertEqual(snapshot["samples"], [])
+        history.sample(snapshot, .1)
+        self.assertEqual(list(history.series["input:0:tx"]), [(0., 1.25)])
         live.consume(value_event(.2, 2.5))
-        history.sample(live.snapshot(.2, "running", drain=True), .2)
-        self.assertEqual(list(history.series["input:0:tx"]), [(0., None), (.2, 2.5)])
+        snapshot = live.snapshot(.2, "running", drain=True)
+        self.assertIsNone(snapshot["rows"][0]["confirmation"])
+        history.sample(snapshot, .2)
+        self.assertEqual(list(history.series["input:0:tx"]), [(0., 1.25), (.2, 2.5)])
+
+    def test_confirmation_storm_does_not_fill_buffer_or_refresh_value_age(self):
+        live = LiveValues(settings(), capacity=2)
+        live.consume(value_event(0., 1.25))
+        for index in range(10000):
+            live.consume(Event("register_confirmation", "ACK", "DEBUG", details=dict(
+                area="input", direction="tx", address=0, count=2, sampled_s=0.,
+                quality="ambiguous" if index % 2 else "timeout")))
+        snapshot = live.snapshot(.5, "running", drain=True)
+        self.assertEqual(len(snapshot["samples"]), 1)
+        self.assertEqual(snapshot["samples_dropped"], 0)
+        row = snapshot["rows"][0]
+        self.assertEqual(row["sample_id"], 1)
+        self.assertEqual(row["sampled_s"], 0.)
+        self.assertEqual(row["quality"], "submitted")
+        self.assertEqual(row["confirmation"], "ambiguous")
+        history = TrendHistory()
+        history.sample(snapshot, .5)
+        history.advance(1.5, "running")
+        self.assertIsNone(history.series["input:0:tx"][-1][1])
+
+    def test_old_confirmation_cannot_be_attached_to_a_newer_value(self):
+        live = LiveValues(settings())
+        live.consume(value_event(0., 1.25))
+        live.consume(value_event(.1, 2.5))
+        live.consume(Event("register_confirmation", "old ACK", "DEBUG", details=dict(
+            area="input", direction="tx", address=0, count=2, sampled_s=0., quality="confirmed")))
+        row = live.snapshot(.1, "running")["rows"][0]
+        self.assertIsNone(row["confirmation"])
+        self.assertEqual(row["sampled_s"], .1)
+        self.assertEqual(row["value"], 2.5)
+
+    def test_worker_publishes_session_uncertainty_after_stop(self):
+        runner = SimpleNamespace(live=LiveValues(settings()), state="stopped", counters={},
+                                 engine=SimpleNamespace(uncertain=True),
+                                 control=SimpleNamespace(now=lambda: 1.))
+        packet = next(live_packets(dict(type="result", result={}), runner))
+        self.assertTrue(packet["live"]["ack_correlation_uncertain"])
 
     def test_time_window_capacity_and_stopped_final_batch(self):
         live = LiveValues(settings())

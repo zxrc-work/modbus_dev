@@ -9,6 +9,63 @@ import unittest
 
 @unittest.skipUnless(importlib.util.find_spec("PySide6"), "需要可选 Qt 依赖")
 class LiveGuiTests(unittest.TestCase):
+    def test_valid_ack_metrics_and_tx_history_are_independent_of_correlation(self):
+        script = '''
+import time
+from modbus_dev.application.live import LiveValues
+from modbus_dev.domain.events import Event
+from modbus_dev.gui import Workbench, create_application
+from modbus_dev.domain.config import TaskConfig
+app = create_application()
+window = Workbench()
+config = TaskConfig.from_mapping(dict(mode='rtu-master', serial=dict(port='TEST', baud=115200), duration_s=0))
+window.apply_config(config)
+window.show()
+app.processEvents()
+window.counter_mode = 'rtu-master'
+window.show_counters(dict(write_attempts=100, ack=12, ack_ambiguous=87, timeout=1, read=1, read_ambiguous=2))
+assert [x.text() for x in window.metric_values] == ['100', '99', '3', '0']
+assert window.metric_labels[1].text() == '有效 ACK'
+assert '包含关联不确定' in window.metric_values[1].toolTip()
+assert window.last_counters['ack'] == 12
+assert window.last_counters['ack_ambiguous'] == 87
+panel = window.live_panel
+now = time.monotonic()
+live = LiveValues(config)
+live.consume(Event('register_values', 'TX', 'DEBUG', details=dict(area='holding', direction='tx',
+    address=0, registers=[0x3fa0, 0], function=16, sampled_s=now, quality='submitted')))
+live.consume(Event('register_confirmation', 'ACK', 'DEBUG', details=dict(area='holding', direction='tx',
+    address=0, count=2, sampled_s=now, quality='ambiguous')))
+snapshot = live.snapshot(now, 'running', drain=True)
+snapshot['ack_correlation_uncertain'] = True
+panel.ingest(snapshot)
+panel.refresh_values()
+assert panel.table.item(0, 2).text() == '1.25'
+assert '已提交发送' in panel.table.item(0, 5).text()
+assert '关联不确定' in panel.table.item(0, 2).toolTip()
+assert list(panel.history.series['holding:0:tx']) == [(now, 1.25)]
+assert panel.correlation_note.isVisible()
+# A later timeout changes the confirmation text without erasing or refreshing the sent value.
+live.consume(Event('register_confirmation', 'timeout', 'DEBUG', details=dict(area='holding', direction='tx',
+    address=0, count=2, sampled_s=now, quality='timeout')))
+panel.ingest(live.snapshot(now + .1, 'running', drain=True))
+panel.refresh_values()
+assert '应答超时' in panel.table.item(0, 5).text()
+assert list(panel.history.series['holding:0:tx']) == [(now, 1.25)]
+assert panel.correlation_note.isVisible()
+panel.set_state('stopped')
+assert not panel.value_timer.isActive()
+assert '停止' in panel.table.item(0, 5).text()
+panel.configure(config)
+assert not panel.correlation_note.isVisible()
+assert not panel.correlation_uncertain
+window.close()
+'''
+        environment = dict(os.environ, QT_QPA_PLATFORM="offscreen")
+        result = subprocess.run([sys.executable, "-c", script], cwd=Path(__file__).resolve().parents[1],
+                                env=environment, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_continuous_status_updates_do_not_starve_curve_timer(self):
         script = '''
 import time

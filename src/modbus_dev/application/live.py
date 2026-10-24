@@ -47,10 +47,11 @@ class LiveValues:
                     continue
                 key = f"{data['area']}:{index}:{data['direction']}"
                 if event.code == "register_confirmation":
-                    if key in self.rows:
-                        self.rows[key]["quality"] = data["quality"]
-                        # 同一采样点的确认状态更新，不制造新的测量点。
-                        self._enqueue(self.rows[key])
+                    row = self.rows.get(key)
+                    if row is not None and data.get("sampled_s", row["sampled_s"]) == row["sampled_s"]:
+                        # ACK describes this write attempt, not the submitted value's validity.
+                        # Updating a row must not enqueue duplicate points or refresh its age.
+                        row["confirmation"] = data["quality"]
                     continue
                 complete = start <= point.address and stop >= point.address + 2
                 raw = words[max(start, point.address) - start:min(stop, point.address + 2) - start]
@@ -62,7 +63,7 @@ class LiveValues:
                 self.rows[key] = dict(key=key, sample_id=self.sequence, point=index, name=point.name or f"测点 {index + 1}",
                                      area=data["area"], address=point.address, direction=data["direction"],
                                      value=value, registers=list(raw), function=data["function"],
-                                     quality=quality,
+                                     quality=quality, confirmation=None,
                                      sampled_s=data["sampled_s"])
                 self._enqueue(self.rows[key])
 

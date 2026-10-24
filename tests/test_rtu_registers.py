@@ -110,6 +110,23 @@ class RegisterTests(unittest.TestCase):
 
 
 class OperationTests(unittest.TestCase):
+    def test_unsent_request_does_not_change_previous_write_confirmation(self):
+        with tempfile.TemporaryDirectory() as root:
+            clock = test_rtu_session.FakeControl()
+            peer = Peer(clock, delay=.005)
+            # Late noise consumes the second cycle's budget before any write call.
+            peer.pending.extend((.2 + i * .0005, b"x") for i in range(160))
+            runner = SessionRunner(config("rtu-master", duration_s=.2), Path(root) / "run", control=clock,
+                engine_factory=lambda c, t, e: RtuEngine(c, t, e, lambda _: peer))
+            result = runner.run()
+            self.assertEqual(result["exit_code"], 0, result)
+            self.assertEqual(result["counters"]["write_attempts"], 1)
+            self.assertEqual(result["counters"]["schedule_missed"], 1)
+            row = runner.live.snapshot(clock.now(), "running")["rows"][0]
+            self.assertEqual(row["confirmation"], "confirmed")
+            self.assertEqual(row["quality"], "submitted")
+            self.assertAlmostEqual(row["sampled_s"], .1)
+
     def test_write_confirmation_keeps_uncertainty_after_timeout(self):
         for actions, quality in (((), "confirmed"), (("timeout",), "ambiguous")):
             with self.subTest(actions=actions), tempfile.TemporaryDirectory() as root:
@@ -125,12 +142,13 @@ class OperationTests(unittest.TestCase):
                 snapshot = runner.live.snapshot(clock.now(), "running")
                 self.assertEqual(len(snapshot["rows"]), 1)
                 row = snapshot["rows"][0]
-                self.assertEqual(row["quality"], quality)
+                self.assertEqual(row["quality"], "submitted")
+                self.assertEqual(row["confirmation"], quality)
                 self.assertEqual(row["direction"], "tx")
                 self.assertEqual(row["registers"], [0, 0])
                 history = TrendHistory()
                 history.sample(snapshot, clock.now())
-                self.assertEqual(history.series[row["key"]][-1][1], None if actions else 0.)
+                self.assertEqual(history.series[row["key"]][-1][1], 0.)
 
     def test_each_operation_builds_correct_requests_and_budgets(self):
         for operation, functions in (("read-holding", [3]), ("read-input", [4]),
@@ -185,6 +203,24 @@ class OperationTests(unittest.TestCase):
 
 
 class LiveTests(unittest.TestCase):
+    def test_ack_does_not_promote_partial_or_nonfinite_tx_values(self):
+        for words, quality in (((0x3fa0,), "partial"), ((0x7f80, 0), "nonfinite")):
+            with self.subTest(quality=quality):
+                live = LiveValues(config("rtu-master"))
+                live.consume(Event("register_values", "TX", "DEBUG", details=dict(
+                    area="holding", direction="tx", address=0, registers=words,
+                    function=16, sampled_s=.1, quality="submitted")))
+                live.consume(Event("register_confirmation", "ACK", "DEBUG", details=dict(
+                    area="holding", direction="tx", address=0, count=2, sampled_s=.1, quality="confirmed")))
+                snapshot = live.snapshot(.1, "running", drain=True)
+                row = snapshot["rows"][0]
+                self.assertEqual(row["quality"], quality)
+                self.assertEqual(row["confirmation"], "confirmed")
+                self.assertIsNone(row["value"])
+                history = TrendHistory()
+                history.sample(snapshot, .1)
+                self.assertIsNone(history.series[row["key"]][-1][1])
+
     def event(self, registers=(0x3fa0, 0), **options):
         return Event("register_values", "数值", "DEBUG", details=dict(
             area="holding", direction="rx", address=0, registers=registers,

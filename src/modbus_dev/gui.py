@@ -21,6 +21,7 @@ from .domain.config import MAX_POINTS, PointConfig, TaskConfig, load_config, poi
 from .gui_points import PointEditor
 from .gui_live import RealtimePanel
 from .domain.operations import OPERATIONS
+from .domain.transactions import valid_reply_counts
 from .domain.usage import ParameterUsage
 from .gui_theme import METRICS, application_palette, application_stylesheet, ui_font
 from .gui_widgets import CheckBox, ComboBox, WorkbenchStyle, card, label, refresh_style
@@ -37,7 +38,8 @@ CHOICE_LABELS = {
 COUNTER_LABELS = {
     "source_updates": "数据更新", "slave_request": "从站请求", "rx": "接收调用", "tx": "发送调用",
     "listener_opens": "监听打开", "port_opens": "串口打开", "open_errors": "打开失败",
-    "io_errors": "I/O 错误", "write_attempts": "请求发送", "ack": "写入确认", "read": "读取应答",
+    "io_errors": "I/O 错误", "write_attempts": "请求发送", "ack": "普通 ACK", "read": "普通读应答",
+    "valid_ack": "有效 ACK", "valid_read": "有效读应答",
     "ack_ambiguous": "关联不确定的确认", "read_ambiguous": "关联不确定的读回",
     "exception": "协议异常", "exception_ambiguous": "关联不确定的异常", "timeout": "应答超时",
     "schedule_late": "调度迟发", "schedule_missed": "错过交易预算", "skipped_slots": "跳过周期",
@@ -46,6 +48,8 @@ COUNTER_LABELS = {
 SCHEDULE_LATE_HELP = ("相邻周期首笔实际发送间隔超过“周期 + 容差”才计数，等于上限不计；首笔不判定。"
                       "例如 100 ms 周期、10% 容差，间隔超过 110 ms 才计数。"
                       "同周期分组和读回不重复计数；相对计划偏移保留在详细日志和会话汇总。")
+VALID_REPLY_HELP = "统计通过帧校验及请求字段检查、在交易预算内接受的应答，包含关联不确定项；不代表逐笔唯一关联或设备源质量。"
+METRIC_HELP = {"schedule_late": SCHEDULE_LATE_HELP, "valid_ack": VALID_REPLY_HELP, "valid_read": VALID_REPLY_HELP}
 
 
 class Workbench(QMainWindow):
@@ -662,14 +666,16 @@ class Workbench(QMainWindow):
 
     def update_metrics(self):
         mode = self.counter_mode or self.text("mode")
-        keys = (("write_attempts", "ack", "read", "schedule_late") if mode == "rtu-master" else
+        keys = (("write_attempts", "valid_ack", "valid_read", "schedule_late") if mode == "rtu-master" else
                 ("source_updates", "slave_request", "rx", "tx"))
+        totals = valid_reply_counts(self.last_counters)
         for key, caption, value in zip(keys, self.metric_labels, self.metric_values):
             caption.setText(COUNTER_LABELS[key])
-            caption.setToolTip(f"{key}\n{SCHEDULE_LATE_HELP}" if key == "schedule_late" else key)
-            value.setText(str(self.last_counters.get(key, 0)) if self.last_counters else "—")
+            help_text = METRIC_HELP.get(key, "")
+            caption.setToolTip(f"{key}\n{help_text}" if help_text else key)
+            value.setText(str(totals.get(key, self.last_counters.get(key, 0))) if self.last_counters else "—")
             tooltip = f"{COUNTER_LABELS[key]} ({key})"
-            value.setToolTip(f"{tooltip}\n{SCHEDULE_LATE_HELP}" if key == "schedule_late" else tooltip)
+            value.setToolTip(f"{tooltip}\n{help_text}" if help_text else tooltip)
 
     def stop(self):
         if self.active():

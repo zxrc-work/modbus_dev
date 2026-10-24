@@ -332,6 +332,51 @@ class SessionTests(unittest.TestCase):
         self.assertGreaterEqual(peer.writes[1][0], .2 + 3.5 * 10 / 9600 - 1e-12)
         self.assertTrue(any(e["code"] == "idle_rx" for e in events))
 
+    def test_valid_acks_after_one_timeout_are_counted_without_repeated_warnings(self):
+        result, _, events = self.exercise(["ack"] * 12 + ["timeout"], duration=10., delay=.005)
+        self.assertEqual(result["counters"]["ack"], 12)
+        self.assertEqual(result["counters"]["timeout"], 1)
+        self.assertEqual(result["counters"]["ack_ambiguous"], 87)
+        self.assertEqual(result["reply_summary"]["valid_ack"], 99)
+        self.assertEqual(result["reply_summary"]["valid_read"], 0)
+        self.assertTrue(result["ack_correlation_uncertain"])
+        self.assertEqual(sum(e["code"] == "ack_correlation_uncertain" for e in events), 1)
+        uncertain = [e for e in events if e["code"] == "transaction" and e["details"]["status"] == "ack_ambiguous"]
+        self.assertEqual(len(uncertain), 87)
+        self.assertTrue(all(e["level"] == "DEBUG" and e["details"]["ambiguous"] for e in uncertain))
+        failures = [e for e in events if e["code"] == "transaction" and e["level"] == "WARNING"]
+        self.assertEqual([e["details"]["status"] for e in failures], ["timeout"])
+
+    def test_ambiguous_read_keeps_value_quality_and_protocol_errors_still_warn(self):
+        result, _, events = self.exercise(["timeout"], duration=.3, master_operation="read-input", delay=.005)
+        self.assertEqual(result["reply_summary"]["valid_read"], 2)
+        reads = [e for e in events if e["code"] == "register_values" and e["details"]["direction"] == "rx"]
+        self.assertTrue(reads)
+        self.assertTrue(all(e["details"]["quality"] == "ambiguous" for e in reads))
+        result, _, events = self.exercise(["timeout", "exception"], duration=.3, delay=.005)
+        error = next(e for e in events if e["code"] == "transaction" and e["details"]["status"] == "exception_ambiguous")
+        self.assertEqual(error["level"], "WARNING")
+        self.assertEqual(result["reply_summary"]["valid_ack"], 1)
+
+    def test_strict_policy_still_rejects_an_ambiguous_valid_ack(self):
+        def setup(clock, peer):
+            # Extra bytes are a real reason for uncertainty, despite a valid ACK candidate.
+            original = peer.write
+            def write(data):
+                size = original(data)
+                at, packet = peer.pending.pop()
+                peer.pending.append((at, b"\xff" + packet))
+                return size
+            peer.write = write
+            return lambda _: peer
+        result, peer, events = self.exercise(duration=.4, delay=.005, policy="strict", setup=setup)
+        self.assertEqual(result["exit_code"], 1)
+        self.assertEqual(len(peer.writes), 1)
+        self.assertEqual(result["counters"]["ack_ambiguous"], 1)
+        self.assertEqual(result["reply_summary"]["valid_ack"], 1)
+        self.assertTrue(result["ack_correlation_uncertain"])
+        self.assertTrue(any(e["code"] == "session_failed" and e["level"] == "ERROR" for e in events))
+
     def test_bad_crc_wrong_address_and_exceptions(self):
         for action in ("crc", "wrong", "exception"):
             result, peer, events = self.exercise([action])

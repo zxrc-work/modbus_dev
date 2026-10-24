@@ -6,7 +6,7 @@ import traceback
 
 from ..domain.events import Event
 from ..domain.operations import cycle_requests
-from ..domain.transactions import StopRequested
+from ..domain.transactions import StopRequested, valid_reply_counts
 from ..sources.synthetic import SyntheticSource
 from ..reporting.journal import Journal, LogWriteError
 from .control import Control
@@ -122,19 +122,24 @@ class SessionRunner:
                 quality = "readback-mismatch"
             self._value_event(request, reply.registers, "rx", reply.received_s,
                               quality)
-        elif request.function in (6, 16):
+        elif request.function in (6, 16) and reply.sent_s is not None:
             quality = reply.status
             if reply.status == "ack":
                 quality = "ambiguous" if reply.ambiguous else "confirmed"
             event = Event("register_confirmation", "写入应答状态", "DEBUG", "communication",
                           dict(area="holding", direction="tx", address=request.address, count=request.count,
-                               quality=quality))
+                               sampled_s=reply.sent_s, quality=quality))
             self.live.consume(event)
         status = reply.status + ("_ambiguous" if reply.ambiguous and reply.status in ("ack", "read", "exception") else "")
         self.counters[status] += 1
         if reply.received_s is not None and reply.sent_s is not None:
             self.metrics["response_ms"].add((reply.received_s - reply.sent_s) * 1000)
-        level = "INFO" if status in ("ack", "read") else "WARNING"
+        # A sticky correlation flag is historical evidence, not a fresh frame failure.
+        # Keep every accepted reply in the journal without flooding the GUI preview.
+        if reply.status in ("ack", "read"):
+            level = "DEBUG" if reply.ambiguous else "INFO"
+        else:
+            level = "WARNING"
         self._emit("transaction", status, level, "communication", slot=slot, status=status,
                    port=self.config.serial.port, unit=self.config.unit, function=request.function,
                    address=request.address, count=request.count, sent_s=reply.sent_s,
@@ -295,6 +300,7 @@ class SessionRunner:
                               exit_code=1 if error else 130 if reason == "user_stopped" else 0,
                               elapsed_s=self.control.now() - started, counters=dict(self.counters),
                               ack_correlation_uncertain=bool(self.engine and self.engine.uncertain),
+                              reply_summary=valid_reply_counts(self.counters),
                               timing=self._timing_summary(),
                               metrics={name: metric.report() for name, metric in self.metrics.items()})
                 try:

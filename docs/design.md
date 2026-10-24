@@ -101,6 +101,16 @@ RTU 接收只接受静默划定且 CRC 正确的完整帧；最大 256 字节，
 静默按实际串口格式计算；收到驱动交付数据后重新计时，持续噪声等待不突破 deadline。
 write 返回时间、应答交付时间、源时间、计划时间分别保存。Windows 高精度计时请求成对释放。
 一旦关联不确定，后续有效 ACK 仍保留 ambiguous，不能因重开串口就宣称严格关联恢复。
+该标记是会话历史取证状态，不等于后续每笔新发生通信失败。首次 ack_correlation_uncertain 为 WARNING；
+后续有效 ack_ambiguous / read_ambiguous 交易按 DEBUG 完整记录，错误交易仍按 WARNING，严格模式判定不变。
+普通和关联不确定的分类计数不改名、不合并覆盖；domain.transactions.valid_reply_counts 仅在 GUI 刷新或结束汇总时计算合计，
+不在通信路径重复累计合计值或增加队列。首页使用 valid_ack / valid_read，run.reply_summary 保存两项合计，均不宣称逐请求唯一确认。
+
+LiveValues 将发送值 quality 与应答 confirmation 分开。确认更新只改变匹配发送时间的现有行，
+不更新 sample_id / sampled_s、不重复入通信点队列；未发出的请求不改写上一笔的确认。
+每次新提交重置该点 confirmation。部分寄存器及非有限值不因 ACK 成功被提升为有效数值，RX 的关联不确定门控保持原样。
+worker 每个状态批次附带固定大小的 ack_correlation_uncertain 历史标记，GUI 在本会话内保留提示，重新配置新会话时清空。
+没有新增线程、通信等待、补发或队列；保留原缓冲容量、批次上限和停止收尾流程。
 
 ## 6. 日志与 UI 性能
 
