@@ -43,6 +43,9 @@ COUNTER_LABELS = {
     "schedule_late": "调度迟发", "schedule_missed": "错过交易预算", "skipped_slots": "跳过周期",
     "port_unavailable": "串口不可用", "readback_mismatch": "读回不一致",
 }
+SCHEDULE_LATE_HELP = ("相邻周期首笔实际发送间隔超过“周期 + 容差”才计数，等于上限不计；首笔不判定。"
+                      "例如 100 ms 周期、10% 容差，间隔超过 110 ms 才计数。"
+                      "同周期分组和读回不重复计数；相对计划偏移保留在详细日志和会话汇总。")
 
 
 class Workbench(QMainWindow):
@@ -186,6 +189,7 @@ class Workbench(QMainWindow):
                                                       ("read_function", "写后读回功能码", ["3", "4"]),
                                                       ("schedule_tolerance_percent", "调度容差 %", None)])
         self.fields["readback_every"].setToolTip("每 N 周期读回一次；0 表示关闭读回。")
+        self.fields["schedule_tolerance_percent"].setToolTip(SCHEDULE_LATE_HELP)
         self.fields["master_operation"].setToolTip("读取不发送写入报文；FC06 按 16 位寄存器逐个写入，一个 float32 分两笔。")
         connection.addStretch()
 
@@ -651,7 +655,7 @@ class Workbench(QMainWindow):
         self.stats.setRowCount(len(counters))
         for row, (key, value) in enumerate(sorted(counters.items())):
             item = QTableWidgetItem(COUNTER_LABELS.get(key, key))
-            item.setToolTip(key)
+            item.setToolTip(f"{key}\n{SCHEDULE_LATE_HELP}" if key == "schedule_late" else key)
             self.stats.setItem(row, 0, item)
             self.stats.setItem(row, 1, QTableWidgetItem(str(value)))
         self.update_metrics()
@@ -662,9 +666,10 @@ class Workbench(QMainWindow):
                 ("source_updates", "slave_request", "rx", "tx"))
         for key, caption, value in zip(keys, self.metric_labels, self.metric_values):
             caption.setText(COUNTER_LABELS[key])
-            caption.setToolTip(key)
+            caption.setToolTip(f"{key}\n{SCHEDULE_LATE_HELP}" if key == "schedule_late" else key)
             value.setText(str(self.last_counters.get(key, 0)) if self.last_counters else "—")
-            value.setToolTip(f"{COUNTER_LABELS[key]} ({key})")
+            tooltip = f"{COUNTER_LABELS[key]} ({key})"
+            value.setToolTip(f"{tooltip}\n{SCHEDULE_LATE_HELP}" if key == "schedule_late" else tooltip)
 
     def stop(self):
         if self.active():

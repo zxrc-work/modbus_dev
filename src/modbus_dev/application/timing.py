@@ -6,6 +6,9 @@ from dataclasses import dataclass
 import math
 
 
+SCHEDULE_LATE_BASIS = "cycle_first_send_interval"
+
+
 @dataclass(frozen=True)
 class SlotDecision:
     slot: int

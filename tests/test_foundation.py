@@ -95,6 +95,8 @@ class ConfigTests(unittest.TestCase):
             with contextlib.redirect_stdout(out):
                 self.assertEqual(main(["validate", str(path)]), 0)
             self.assertTrue(json.loads(out.getvalue())["configuration_only"])
+            self.assertEqual(json.loads(out.getvalue())["schedule_late_basis"], "cycle_first_send_interval")
+            self.assertEqual(json.loads(out.getvalue())["cycle_interval_limit_ms"], 110)
             path.write_text('{"oops":1}', encoding="utf-8")
             err = io.StringIO()
             with contextlib.redirect_stderr(err):

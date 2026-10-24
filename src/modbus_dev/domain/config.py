@@ -299,6 +299,10 @@ class TaskConfig:
     def schedule_tolerance_ms(self):
         return self.period_ms * self.schedule_tolerance_percent / 100
 
+    @property
+    def cycle_interval_limit_ms(self):
+        return self.period_ms + self.schedule_tolerance_ms
+
 
 def load_config(path):
     def unique_pairs(pairs):

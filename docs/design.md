@@ -75,9 +75,21 @@ Modbus 回放要求时间连续，不默认拼接缺口或丢弃质量信息。
 停止令牌贯穿准备、等待、读写和重连；所有阻塞调用有上限。停止后先释放通信，再收尾日志和摘要。
 
 持续发数：perf_counter 绝对槽位；落后整周期跳至未来槽位；不追赶；异常后限频重连。
-调度容差 schedule_tolerance_percent 默认 10%，可配置为 0～100；每周期首次实际写调用与计划时刻比较，
-晚发不超过容差（含边界）为正常，超过产生 schedule_late WARNING 及计数，告警本身不停止任务。
-读回和后续分组不作为新的周期首发；容差不延长交易 deadline，不造成时间基准漂移。
+调度容差 schedule_tolerance_percent 默认 10%，可配置为 0～100；相邻周期首笔实际写调用间隔与
+`period_ms + period_ms * schedule_tolerance_percent / 100` 比较。等于上限正常，超过才产生
+schedule_late WARNING 及计数；首笔没有参照，不判迟发。告警本身不停止任务，严格模式也不因该告警退出。
+读回和后续分组不作为新的周期首发；跳槽、串口不可用或重连后仍比较两次实际首发的间隔，不按槽位差放宽上限。
+统计的“发送”是 write 调用开始，包含短写或失败尝试，不代表 UART 第一位发出或写入得到确认。
+容差不延长交易 deadline，也不移动原有绝对时间基准；发送间隔偏短只反映在间隔分布中，不计为调度迟发。
+
+原始 tx 事件增加 scheduled_s、schedule_offset_ms、cycle_first_send；首发另外保存
+cycle_interval_ms、previous_cycle_sent_s、previous_cycle_slot。首笔的间隔与前次引用为 null。
+相对计划偏移只作为 DEBUG 详细日志和 send_lateness_ms / cycle_lateness_ms 分布，不单独产生告警。
+send_interval_ms 继续统计所有请求间隔，cycle_interval_ms 仅统计相邻周期首发间隔。
+会话启动、schedule_late 告警及 run.timing 汇总标明 cycle_first_send_interval 口径，避免与旧日志的计划偏移告警混淆。
+告警详情中的 interval_excess_ms 是实际间隔减名义周期，不是计划偏移；详细 tx 的 schedule_offset_ms 保留后者。
+run.timing 保存名义周期、容差、间隔上限、首发及间隔数量、mean_cycle_interval_ms 和 actual_cycle_rate_hz；
+实测频率为 `1000 / mean_cycle_interval_ms`，涵盖首末发送之间的断流时间，不足两笔时均值和频率为 null。
 严格回放：每个源样本按顺序消费；落后整周期或交易失败即失败，禁止悄悄丢源样本。
 从站：独立数据时钟更新寄存器快照；读请求不推动源时间；启动/结束时刻语义显式记录。
 当前从站在首次连接尝试后建立数据时钟；持续模式断线期间继续更新，重连不重新计时。

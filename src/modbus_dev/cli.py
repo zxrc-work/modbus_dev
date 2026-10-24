@@ -70,9 +70,12 @@ def main(argv=None):
         result = dict(valid=True, schema_version=config.schema_version, mode=config.mode,
                       period_ms=config.period_ms, configuration_only=True)
         if config.mode == "rtu-master":
+            from .application.timing import SCHEDULE_LATE_BASIS
             minimum = minimum_cycle_ms(config)
             result.update(schedule_tolerance_percent=config.schedule_tolerance_percent,
                           schedule_tolerance_ms=config.schedule_tolerance_ms,
+                          schedule_late_basis=SCHEDULE_LATE_BASIS,
+                          cycle_interval_limit_ms=config.cycle_interval_limit_ms,
                           minimum_cycle_ms=minimum, remaining_processing_budget_ms=config.timeout_ms - minimum,
                           gap_ms=config.serial.gap_ms)
         print(json.dumps(result, ensure_ascii=False))

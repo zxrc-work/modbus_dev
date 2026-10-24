@@ -11,7 +11,7 @@ from ..sources.synthetic import SyntheticSource
 from ..reporting.journal import Journal, LogWriteError
 from .control import Control
 from .metrics import Metric
-from .timing import AbsoluteSchedule
+from .timing import AbsoluteSchedule, SCHEDULE_LATE_BASIS
 from .live import LiveValues
 
 _ACTIVE_SESSION = threading.Lock()
@@ -70,24 +70,47 @@ class SessionRunner:
                 self.metrics["send_interval_ms"].add((sent - self.previous_send) * 1000)
             self.previous_send = sent
             if self.current_scheduled is not None:
-                self.metrics["send_lateness_ms"].add((sent - self.current_scheduled) * 1000)
-            if self.current_slot != self.last_sent_slot:
-                lateness_ms = (sent - self.current_scheduled) * 1000
-                # Compare absolute times; 1 ns slack avoids floating point noise
-                # at the inclusive tolerance boundary, not a runtime grace period.
-                if sent > self.current_scheduled + self.config.schedule_tolerance_ms / 1000 + 1e-9:
-                    self.counters["schedule_late"] += 1
-                    self._emit("schedule_late", "Cycle first send exceeded scheduling tolerance",
-                               "WARNING", "scheduling", slot=self.current_slot,
-                               scheduled_s=self.current_scheduled, sent_s=sent,
-                               lateness_ms=lateness_ms,
-                               tolerance_ms=self.config.schedule_tolerance_ms,
-                               tolerance_percent=self.config.schedule_tolerance_percent)
+                offset_ms = (sent - self.current_scheduled) * 1000
+                self.metrics["send_lateness_ms"].add(offset_ms)
+                details.update(scheduled_s=self.current_scheduled, schedule_offset_ms=offset_ms)
+            first_send = self.current_slot != self.last_sent_slot
+            details["cycle_first_send"] = first_send
+            if first_send:
+                interval_ms = None
                 if self.previous_cycle_send is not None:
-                    self.metrics["cycle_interval_ms"].add((sent - self.previous_cycle_send) * 1000)
-                self.metrics["cycle_lateness_ms"].add((sent - self.current_scheduled) * 1000)
+                    interval_ms = (sent - self.previous_cycle_send) * 1000
+                    self.metrics["cycle_interval_ms"].add(interval_ms)
+                    # Inclusive upper bound, with 1 ns slack for floating point noise.
+                    limit_s = self.config.cycle_interval_limit_ms / 1000
+                    if sent > self.previous_cycle_send + limit_s + 1e-9:
+                        self.counters["schedule_late"] += 1
+                        self._emit("schedule_late", "Interval between cycle first sends exceeded tolerance",
+                                   "WARNING", "scheduling", basis=SCHEDULE_LATE_BASIS,
+                                   slot=self.current_slot, previous_slot=self.last_sent_slot,
+                                   previous_sent_s=self.previous_cycle_send, sent_s=sent,
+                                   interval_ms=interval_ms, period_ms=self.config.period_ms,
+                                   interval_excess_ms=interval_ms - self.config.period_ms,
+                                   interval_limit_ms=self.config.cycle_interval_limit_ms,
+                                   tolerance_ms=self.config.schedule_tolerance_ms,
+                                   tolerance_percent=self.config.schedule_tolerance_percent)
+                details.update(cycle_interval_ms=interval_ms,
+                               previous_cycle_sent_s=self.previous_cycle_send,
+                               previous_cycle_slot=self.last_sent_slot)
+                self.metrics["cycle_lateness_ms"].add(offset_ms)
                 self.previous_cycle_send, self.last_sent_slot = sent, self.current_slot
         self.journal.emit(Event(event.code, event.message, event.level, event.phase, details))
+
+    def _timing_summary(self):
+        interval = self.metrics["cycle_interval_ms"]
+        mean_ms = interval.mean if interval.count else None
+        return dict(schedule_late_basis=SCHEDULE_LATE_BASIS,
+                    period_ms=self.config.period_ms,
+                    tolerance_ms=self.config.schedule_tolerance_ms,
+                    cycle_interval_limit_ms=self.config.cycle_interval_limit_ms,
+                    cycle_first_sends=self.metrics["cycle_lateness_ms"].count,
+                    cycle_intervals=interval.count,
+                    mean_cycle_interval_ms=mean_ms,
+                    actual_cycle_rate_hz=1000 / mean_ms if mean_ms is not None and mean_ms > 0 else None)
 
     def _transaction(self, request, deadline, slot, scheduled):
         self.current_request = request
@@ -154,6 +177,8 @@ class SessionRunner:
                 with WindowsTimer() as timer:
                     self._emit("session_started", "RTU master starting", timer=timer.status,
                                engine="pymodbus-codec/pyserial-deadline", policy=self.config.policy,
+                               schedule_late_basis=SCHEDULE_LATE_BASIS,
+                               cycle_interval_limit_ms=self.config.cycle_interval_limit_ms,
                                schedule_tolerance_percent=self.config.schedule_tolerance_percent,
                                schedule_tolerance_ms=self.config.schedule_tolerance_ms)
                     reconnect_at = started
@@ -270,6 +295,7 @@ class SessionRunner:
                               exit_code=1 if error else 130 if reason == "user_stopped" else 0,
                               elapsed_s=self.control.now() - started, counters=dict(self.counters),
                               ack_correlation_uncertain=bool(self.engine and self.engine.uncertain),
+                              timing=self._timing_summary(),
                               metrics={name: metric.report() for name, metric in self.metrics.items()})
                 try:
                     self.journal.close(run_summary=result)

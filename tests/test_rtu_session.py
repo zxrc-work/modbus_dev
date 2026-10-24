@@ -135,6 +135,7 @@ class SessionTests(unittest.TestCase):
             events = [json.loads(line) for path in event_paths(runner.directory)
                       for line in path.read_text(encoding="utf-8").splitlines()]
         self.assertEqual(summary["run"]["exit_code"], result["exit_code"])
+        self.assertEqual(summary["run"].get("timing"), result.get("timing"))
         self.assertTrue(peer.closed)
         return result, peer, events
 
@@ -177,7 +178,7 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(samples[0], [-3.5, 10.0, 12.5])
         self.assertGreater(samples[1][1], samples[0][1])
 
-    def test_scheduling_tolerance_boundaries_and_continuation(self):
+    def test_cycle_interval_tolerance_boundaries_and_continuation(self):
         for period, percent, delay_ms, warning in (
                 (100, 10, 9, False), (100, 10, 10, False),
                 (100, 10, 10.01, True), (200, 10, 20, False),
@@ -188,7 +189,8 @@ class SessionTests(unittest.TestCase):
                     original = clock.wait_until
                     def wait(deadline):
                         original(deadline)
-                        if abs(deadline - .1) < 1e-9:
+                        # Delay the second cycle: the first send establishes the reference.
+                        if abs(deadline - (.1 + period / 1000)) < 1e-9:
                             clock.advance(delay_ms / 1000)
                     clock.wait_until = wait
                     return lambda _: peer
@@ -201,16 +203,116 @@ class SessionTests(unittest.TestCase):
                 self.assertEqual(len(warnings), int(warning))
                 if warnings:
                     self.assertEqual(warnings[0]["level"], "WARNING")
-                    self.assertAlmostEqual(warnings[0]["details"]["lateness_ms"], delay_ms)
+                    details = warnings[0]["details"]
+                    self.assertEqual(details["basis"], "cycle_first_send_interval")
+                    self.assertAlmostEqual(details["interval_ms"], period + delay_ms)
+                    self.assertAlmostEqual(details["interval_excess_ms"], delay_ms)
+                    self.assertAlmostEqual(details["interval_limit_ms"], period * (1 + percent / 100))
+
+    def test_first_send_offset_is_logged_without_interval_warning(self):
+        def setup(clock, peer):
+            original = clock.wait_until
+            def wait(deadline):
+                original(deadline)
+                if abs(deadline - .1) < 1e-9:
+                    clock.advance(.015)
+            clock.wait_until = wait
+            return lambda _: peer
+        result, _, events = self.exercise(setup=setup)
+        self.assertEqual(result["counters"]["ack"], 4)
+        self.assertNotIn("schedule_late", result["counters"])
+        first = next(e for e in events if e["code"] == "tx")
+        self.assertTrue(first["details"]["cycle_first_send"])
+        self.assertIsNone(first["details"]["cycle_interval_ms"])
+        self.assertAlmostEqual(first["details"]["schedule_offset_ms"], 15)
+        self.assertAlmostEqual(first["details"]["scheduled_s"], .1)
+
+    def test_constant_phase_offset_keeps_period_without_warnings(self):
+        def setup(clock, peer):
+            original = clock.wait_until
+            def wait(deadline):
+                original(deadline)
+                clock.advance(.015)
+            clock.wait_until = wait
+            return lambda _: peer
+        result, peer, events = self.exercise(setup=setup)
+        self.assertEqual(result["exit_code"], 0)
+        self.assertEqual(len(peer.writes), 4)
+        self.assertNotIn("schedule_late", result["counters"])
+        self.assertAlmostEqual(result["metrics"]["cycle_lateness_ms"]["mean"], 15)
+        self.assertAlmostEqual(result["metrics"]["cycle_interval_ms"]["mean"], 100)
+        timing = result["timing"]
+        self.assertEqual(timing["schedule_late_basis"], "cycle_first_send_interval")
+        self.assertEqual(timing["cycle_first_sends"], 4)
+        self.assertEqual(timing["cycle_intervals"], 3)
+        self.assertAlmostEqual(timing["actual_cycle_rate_hz"], 10)
+        sends = [e["details"] for e in events if e["code"] == "tx"]
+        self.assertTrue(all(e["cycle_first_send"] for e in sends))
+        self.assertTrue(all(abs(e["schedule_offset_ms"] - 15) < 1e-6 for e in sends))
+        self.assertTrue(all(abs(e["cycle_interval_ms"] - 100) < 1e-6 for e in sends[1:]))
+        started = next(e for e in events if e["code"] == "session_started")
+        self.assertEqual(started["details"]["schedule_late_basis"], "cycle_first_send_interval")
+
+    def test_interval_spike_counts_once_and_keeps_absolute_schedule(self):
+        def setup(clock, peer):
+            original = clock.wait_until
+            def wait(deadline):
+                original(deadline)
+                if abs(deadline - .2) < 1e-9:
+                    clock.advance(.015)
+            clock.wait_until = wait
+            return lambda _: peer
+        result, peer, events = self.exercise(setup=setup)
+        self.assertEqual(result["counters"]["schedule_late"], 1)
+        self.assertEqual(result["counters"]["ack"], 4)
+        self.assertEqual(len(peer.writes), 4)
+        for actual, expected in zip([at for at, _ in peer.writes], (.1, .215, .3, .4)):
+            self.assertAlmostEqual(actual, expected)
+        warning = next(e for e in events if e["code"] == "schedule_late")
+        self.assertAlmostEqual(warning["details"]["interval_ms"], 115)
+        self.assertAlmostEqual(warning["details"]["previous_sent_s"], .1)
+        self.assertAlmostEqual(result["metrics"]["cycle_interval_ms"]["min"], 85)
+
+    def test_single_send_has_no_interval_or_measured_cycle_rate(self):
+        result, _, _ = self.exercise(duration=.1)
+        self.assertNotIn("schedule_late", result["counters"])
+        self.assertEqual(result["timing"]["cycle_first_sends"], 1)
+        self.assertEqual(result["timing"]["cycle_intervals"], 0)
+        self.assertIsNone(result["timing"]["mean_cycle_interval_ms"])
+        self.assertIsNone(result["timing"]["actual_cycle_rate_hz"])
+
+    def test_grouped_requests_compare_first_sends_between_cycles(self):
+        def setup(clock, peer):
+            original = clock.wait_until
+            def wait(deadline):
+                original(deadline)
+                if abs(deadline - .3) < 1e-9:
+                    clock.advance(.035)
+            clock.wait_until = wait
+            return lambda _: peer
+        result, _, events = self.exercise(duration=.6, period_ms=200, timeout_ms=170,
+                                         addresses=[0, 4], delay=.015, setup=setup)
+        self.assertEqual(result["counters"]["ack"], 6)
+        self.assertEqual(result["counters"]["schedule_late"], 1)
+        self.assertEqual(result["metrics"]["cycle_interval_ms"]["count"], 2)
+        self.assertEqual(result["metrics"]["send_interval_ms"]["count"], 5)
+        sends = [e["details"] for e in events if e["code"] == "tx"]
+        self.assertEqual([e["cycle_first_send"] for e in sends], [True, False] * 3)
+        warning = next(e for e in events if e["code"] == "schedule_late")
+        self.assertAlmostEqual(warning["details"]["interval_ms"], 235)
 
     def test_readback_does_not_count_as_late_cycle(self):
         result, _, events = self.exercise(delay=.015, readback_every=1)
         self.assertEqual(result["counters"]["read"], 4)
         self.assertGreater(result["metrics"]["send_lateness_ms"]["max"], 10)
         self.assertNotIn("schedule_late", result["counters"])
+        self.assertEqual(result["metrics"]["cycle_interval_ms"]["count"], 3)
+        sends = [e["details"] for e in events if e["code"] == "tx"]
+        self.assertEqual([e["cycle_first_send"] for e in sends], [True, False] * 4)
 
     def test_tolerance_configuration_validation_and_roundtrip(self):
         self.assertEqual(config().schedule_tolerance_ms, 10)
+        self.assertEqual(config().cycle_interval_limit_ms, 110)
         for value in (0, 5.5, 100):
             settings = config(schedule_tolerance_percent=value)
             self.assertEqual(TaskConfig.from_mapping(settings.to_mapping()), settings)
@@ -266,9 +368,12 @@ class SessionTests(unittest.TestCase):
         self.assertGreater(result["counters"]["ack"], 0)
 
     def test_overrun_does_not_catch_up(self):
-        result, peer, _ = self.exercise(["overrun"], duration=.8)
+        result, peer, events = self.exercise(["overrun"], duration=.8)
         self.assertGreaterEqual(result["counters"]["skipped_slots"], 3)
         self.assertGreaterEqual(peer.writes[1][0], .5)
+        warning = next(e for e in events if e["code"] == "schedule_late")
+        self.assertGreaterEqual(warning["details"]["interval_ms"], 400 - 1e-6)
+        self.assertEqual(warning["details"]["period_ms"], 100)
 
     def test_strict_timeout_stops_immediately(self):
         result, peer, _ = self.exercise(["timeout"], policy="strict")
