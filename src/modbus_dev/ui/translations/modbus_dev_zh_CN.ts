@@ -83,12 +83,12 @@
       <translation>已完成</translation>
     </message>
     <message>
-      <source>Configuration loaded</source>
-      <translation>配置已加载</translation>
+      <source>Config imported</source>
+      <translation>配置已导入</translation>
     </message>
     <message>
-      <source>Configuration saved</source>
-      <translation>配置已保存</translation>
+      <source>Config exported</source>
+      <translation>配置已导出</translation>
     </message>
     <message>
       <source>Configuration valid · Not connected</source>
@@ -295,8 +295,8 @@ Age: {p3:.3f} s</source>
       <translation>实时数值</translation>
     </message>
     <message>
-      <source>Load configuration</source>
-      <translation>加载配置</translation>
+      <source>Import Config</source>
+      <translation>导入配置</translation>
     </message>
     <message>
       <source>Local start address</source>
@@ -591,8 +591,8 @@ Age: {p3:.3f} s</source>
       <translation>运行中</translation>
     </message>
     <message>
-      <source>Save configuration</source>
-      <translation>保存配置</translation>
+      <source>Export Config</source>
+      <translation>导出配置</translation>
     </message>
     <message>
       <source>Scheduling tolerance (%)</source>

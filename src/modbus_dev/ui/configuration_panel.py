@@ -75,7 +75,7 @@ class ConfigurationPanel(QFrame):
         config_actions = QHBoxLayout(self.config_buttons)
         config_actions.setContentsMargins(0, 0, 0, 0)
         config_actions.setSpacing(METRICS.spacing)
-        for caption, callback in ((tr('Load configuration'), self.loadRequested.emit), (tr('Save configuration'), self.saveRequested.emit), (tr('Validate'), self.validateRequested.emit)):
+        for caption, callback in ((tr('Import Config'), self.loadRequested.emit), (tr('Export Config'), self.saveRequested.emit), (tr('Validate'), self.validateRequested.emit)):
             button = make_button(caption)
             button.clicked.connect(callback)
             config_actions.addWidget(button)

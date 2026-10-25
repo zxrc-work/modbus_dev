@@ -286,11 +286,11 @@ class Workbench(QMainWindow):
     def load(self):
         if self.active():
             return
-        path, _ = QFileDialog.getOpenFileName(self, tr('Load configuration'), "", "JSON (*.json)")
+        path, _ = QFileDialog.getOpenFileName(self, tr('Import Config'), "", "JSON (*.json)")
         if path and not self.active():
             try:
                 if self.apply_config(load_config(path)):
-                    self.set_status(tr('Configuration loaded'), "success")
+                    self.set_status(tr('Config imported'), "success")
             except Exception as exc:
                 self.error(exc)
 
@@ -300,10 +300,10 @@ class Workbench(QMainWindow):
             return
         try:
             config = self.configuration()
-            path, _ = QFileDialog.getSaveFileName(self, tr('Save configuration'), "config.json", "JSON (*.json)")
+            path, _ = QFileDialog.getSaveFileName(self, tr('Export Config'), "config.json", "JSON (*.json)")
             if path and not self.active():
                 self.settings.export_configuration(path, config)
-                self.set_status(tr('Configuration saved'), "success")
+                self.set_status(tr('Config exported'), "success")
         except Exception as exc:
             self.error(exc)
 
