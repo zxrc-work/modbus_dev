@@ -1,4 +1,6 @@
-"""单站 RTU 读写适配器；按驱动静默划帧，坏帧整段丢弃，接收缓冲有界。"""
+"""单站 RTU 读写适配器；有界等待 USB 分批交付，坏帧整段丢弃。"""
+import os
+
 from pymodbus.framer.rtu import FramerRTU
 from pymodbus.pdu.decoders import DecodePDU
 
@@ -8,6 +10,7 @@ from .rtu import open_serial
 
 class RtuSlaveEngine(RtuRegisters):
     MAX_FRAME = 256
+    DELIVERY_GRACE_S = .01 if os.name == "nt" else 0
 
     def __init__(self, config, control, emit, port_factory=open_serial):
         super().__init__(config, control, emit)
@@ -18,6 +21,7 @@ class RtuSlaveEngine(RtuRegisters):
         self.buffer = bytearray()
         self.overflow = False
         self.last_rx = None
+        self.first_rx = None
         self.quiet_until = 0.0
 
     def connect(self):
@@ -30,8 +34,34 @@ class RtuSlaveEngine(RtuRegisters):
         self.buffer.clear()
         self.overflow = False
         self.last_rx = None
+        self.first_rx = None
         if port is not None:
             port.close()
+
+    def _quiet_deadline(self, gap):
+        quiet = self.last_rx + gap
+        if not self.DELIVERY_GRACE_S or not self.buffer or self.overflow:
+            return quiet
+        packet = self.buffer
+        if packet[0] > 247:
+            return quiet
+        if len(packet) == 1:
+            incomplete = True
+        elif packet[1] in (3, 4, 6):
+            incomplete = len(packet) < 8
+        elif packet[1] == 16:
+            incomplete = len(packet) < 7 or len(packet) < 9 + packet[6]
+        else:
+            incomplete = False
+        # 有效 CRC 的畸形 PDU 仍由寄存器协议层返回原有异常，不能等待虚构的后续字节。
+        if (incomplete and len(packet) >= 4
+                and FramerRTU.check_CRC(packet[:-2], int.from_bytes(packet[-2:], "big"))):
+            incomplete = False
+        if incomplete:
+            # 从首次交付计时，不能用持续到来的字节无限延长等待，也不能拼入下一次请求。
+            quiet = max(quiet, self.first_rx + min(self.DELIVERY_GRACE_S,
+                                                 self.config.timeout_ms / 1000))
+        return quiet
 
     def poll(self, deadline):
         self.control.check()
@@ -42,13 +72,15 @@ class RtuSlaveEngine(RtuRegisters):
         # Keep source-clock and cancellation latency bounded even under noise.
         until = min(deadline, now + .01)
         if self.last_rx is not None:
-            until = min(until, max(now, self.last_rx + gap))
+            until = min(until, max(now, self._quiet_deadline(gap)))
         self.port.timeout = max(0, until - now)
         data = self.port.read(min(self.MAX_FRAME, max(1, self.port.in_waiting)))
         received = self.control.now()
         self.control.check()
         if data:
             self._event("rx", port=self.bound_address, data=data.hex(), received_s=received)
+            if self.last_rx is None:
+                self.first_rx = received
             self.last_rx = received
             if len(self.buffer) + len(data) > self.MAX_FRAME:
                 self.overflow = True
@@ -56,12 +88,13 @@ class RtuSlaveEngine(RtuRegisters):
             if not self.overflow:
                 self.buffer.extend(data)
             return
-        if self.last_rx is None or received - self.last_rx + 1e-9 < gap:
+        if self.last_rx is None or received + 1e-9 < self._quiet_deadline(gap):
             return
         packet = bytes(self.buffer)
         overflow = self.overflow
         self.buffer.clear()
         self.last_rx = None
+        self.first_rx = None
         self.overflow = False
         if overflow:
             self._event("rtu_frame_rejected", reason="frame exceeds 256 bytes")

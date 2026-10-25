@@ -3,6 +3,7 @@ from pathlib import Path
 import struct
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from modbus_dev.application.control import Control
 from modbus_dev.application.session import SessionRunner
@@ -78,7 +79,8 @@ class Port:
 
 
 def config(**options):
-    return TaskConfig.from_mapping(dict(mode="rtu-slave", serial=dict(port="TEST"), **options))
+    options.setdefault("serial", dict(port="TEST"))
+    return TaskConfig.from_mapping(dict(mode="rtu-slave", **options))
 
 
 class RtuSlaveWireTests(unittest.TestCase):
@@ -135,6 +137,31 @@ class RtuSlaveWireTests(unittest.TestCase):
                                      (.09, good[:3]), (.14, good)])
         self.assertEqual(len(port.writes), 1)
         self.assertEqual(sum(e.code == "rtu_frame_rejected" for e in events), 3)
+
+    def test_windows_usb_delivery_gap_does_not_split_a_valid_write(self):
+        request = frame(bytes.fromhex("011000000002043f800000"))
+        with patch.object(RtuSlaveEngine, "DELIVERY_GRACE_S", .01):
+            port, events = self.exercise([(.01, request[:6]), (.0124, request[6:])],
+                access_mode="read-write", serial=dict(port="TEST", baud=115200))
+        self.assertEqual([data for _, data in port.writes], [frame(request[:6])])
+        self.assertFalse(any(e.code == "rtu_frame_rejected" for e in events))
+
+    def test_incomplete_delivery_expires_before_the_next_request(self):
+        request = frame(bytes.fromhex("010300000002"))
+        with patch.object(RtuSlaveEngine, "DELIVERY_GRACE_S", .01):
+            port, events = self.exercise([(.01, request[:3]), (.05, request)],
+                serial=dict(port="TEST", baud=115200))
+        self.assertEqual(len(port.writes), 1)
+        self.assertEqual(sum(e.code == "rtu_frame_rejected" for e in events), 1)
+
+    def test_delivery_grace_cannot_extend_itself_with_trickle_bytes(self):
+        request = frame(bytes.fromhex("010300000002"))
+        with patch.object(RtuSlaveEngine, "DELIVERY_GRACE_S", .01):
+            port, events = self.exercise([(.01, request[:1]), (.019, request[1:2]),
+                                         (.025, request[2:3]), (.08, request)],
+                serial=dict(port="TEST", baud=115200))
+        self.assertEqual(len(port.writes), 1)
+        self.assertGreaterEqual(sum(e.code == "rtu_frame_rejected" for e in events), 1)
 
     def test_overflow_discards_entire_burst_and_recovers(self):
         good = frame(b"\x01\x03\x00\x00\x00\x02")
