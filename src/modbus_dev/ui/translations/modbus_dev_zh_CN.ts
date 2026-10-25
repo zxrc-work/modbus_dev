@@ -1054,5 +1054,17 @@ The UI retains the latest 2000 lines; complete logs are saved to the results dir
       <source>Translations could not be loaded; using English. {detail}</source>
       <translation>无法加载翻译，已使用英文。{detail}</translation>
     </message>
+    <message>
+      <source>Configuration changes were not saved: {detail}</source>
+      <translation>本次配置修改未保存：{detail}</translation>
+    </message>
+    <message>
+      <source>Saved settings could not be restored: {detail}</source>
+      <translation>无法恢复已保存的配置：{detail}</translation>
+    </message>
+    <message>
+      <source>Configuration saved automatically</source>
+      <translation>配置已自动保存</translation>
+    </message>
   </context>
 </TS>

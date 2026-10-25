@@ -19,7 +19,7 @@ config = load_config(args.config)
 if config.duration_s <= 0:
     parser.error('GUI bridge requires a finite test duration')
 app = create_application(language="zh_CN")
-window = Workbench()
+window = Workbench(remember_settings=False)
 window.apply_config(config)
 window.output.setText(str(args.output.parent / 'gui-original'))
 window.show()

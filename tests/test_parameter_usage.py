@@ -104,7 +104,7 @@ class ParameterGuiTests(unittest.TestCase):
 
     def setUp(self):
         from modbus_dev.gui import Workbench
-        self.window = Workbench()
+        self.window = Workbench(remember_settings=False)
         self.window.show()
         self.app.processEvents()
 

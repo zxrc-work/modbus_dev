@@ -57,7 +57,7 @@ def gui_check(output):
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     app = create_application(language="zh_CN")
-    window = Workbench()
+    window = Workbench(remember_settings=False)
     window.output.setText(str(output.parent / output.stem))
     cases = []
 

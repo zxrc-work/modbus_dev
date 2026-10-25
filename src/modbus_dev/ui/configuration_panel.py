@@ -11,10 +11,12 @@ from .point_editor import PointEditor
 from .theme import METRICS
 from .widgets import CheckBox, ComboBox, SerialPortComboBox, label, refresh_style
 from .texts import CHOICE_LABELS, SCHEDULE_LATE_HELP
+from .form_state import FormState, programmatic_changes
 
 
 class ConfigurationPanel(QFrame):
     changed = Signal()
+    edited = Signal()
     loadRequested = Signal()
     saveRequested = Signal()
     validateRequested = Signal()
@@ -32,6 +34,26 @@ class ConfigurationPanel(QFrame):
         for field in self.fields.values():
             signal = field.currentTextChanged if isinstance(field, QComboBox) else field.textChanged
             signal.connect(lambda *_: self.changed.emit())
+        draft_fields = dict(self.fields, **{"serial.rts_toggle": self.rts})
+        for index, editor in enumerate(self.point_editors):
+            draft_fields[f"points.{index}.enabled"] = editor.enabled
+            draft_fields.update({f"points.{index}.{key}": field for key, field in editor.fields.items()})
+        self.form_state = FormState(draft_fields, self.edited.emit)
+
+    def capture_draft(self):
+        return dict(schema_version=1, base_config=self.base_config, values=self.form_state.capture())
+
+    @programmatic_changes
+    def restore_draft(self, draft):
+        if not isinstance(draft, dict) or draft.get("schema_version") != 1:
+            raise ValueError("Unsupported saved configuration draft")
+        config = TaskConfig.from_mapping(draft["base_config"])
+        check_capabilities(config)
+        self.form_state.validate(draft["values"])
+        self.apply_config(config)
+        self.form_state.restore(draft["values"])
+        self.mode_changed()
+        self.update_points_summary()
 
     def set_busy(self, busy):
         self._busy = busy
@@ -175,6 +197,7 @@ class ConfigurationPanel(QFrame):
         self.update_points_summary()
 
 
+    @programmatic_changes
     def apply_config(self, config):
         if self._busy:
             return False
@@ -262,6 +285,7 @@ class ConfigurationPanel(QFrame):
         self.operation_changed()
 
 
+    @programmatic_changes
     def operation_changed(self, *_):
         mode = self.text("mode")
         readonly = self.text("access_mode") == "read-only"

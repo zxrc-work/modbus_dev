@@ -42,7 +42,7 @@ def main():
             if path.is_file():
                 QFontDatabase.addApplicationFont(str(path))
         app.setFont(ui_font())
-    window = Workbench()
+    window = Workbench(remember_settings=False)
     window.setAttribute(Qt.WA_DontShowOnScreen)
     if args.width or args.height:
         window.resize(args.width or window.width(), args.height or window.height())

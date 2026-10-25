@@ -13,8 +13,11 @@ from .preferences import PreferenceStore
 def create_application(*, language=None, preferences_path=None):
     existing = QApplication.instance()
     if existing is not None:
+        if not hasattr(existing, "preference_store"):
+            existing.preference_store = PreferenceStore(preferences_path)
         if not hasattr(existing, "language_manager"):
-            existing.language_manager = LanguageManager(existing, language=language, preferences=PreferenceStore(preferences_path))
+            mode = language or existing.preference_store.load().get("language", "system")
+            existing.language_manager = LanguageManager(existing, language=mode)
         return existing
     # Use pixel-aligned Windows text rendering. Respect an
     # explicit platform (e.g. offscreen) and never disable Qt's high-DPI scaling.
@@ -32,7 +35,9 @@ def create_application(*, language=None, preferences_path=None):
         font.setHintingPreference(QFont.PreferFullHinting)
     app.setFont(font)
     app.setStyleSheet(application_stylesheet())
-    app.language_manager = LanguageManager(app, language=language, preferences=PreferenceStore(preferences_path))
+    app.preference_store = PreferenceStore(preferences_path)
+    mode = language or app.preference_store.load().get("language", "system")
+    app.language_manager = LanguageManager(app, language=mode)
     return app
 
 

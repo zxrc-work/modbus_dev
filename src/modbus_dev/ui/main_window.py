@@ -1,7 +1,6 @@
 """Compose configuration and monitoring around one worker lifecycle."""
 from .i18n import tr, bind, retranslate_tree
 import json
-from pathlib import Path
 from PySide6.QtCore import QSignalBlocker, Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QApplication, QFileDialog, QHBoxLayout, QMainWindow, QMessageBox, QSplitter, QVBoxLayout, QWidget
@@ -12,10 +11,11 @@ from .session_controller import SessionController
 from .theme import METRICS
 from .widgets import label
 from .errors import format_error
+from .settings_controller import SettingsController
 
 
 class Workbench(QMainWindow):
-    def __init__(self):
+    def __init__(self, *, remember_settings=True):
         super().__init__()
         bind(self, 'setWindowTitle', tr('Modbus Dev · Communication Workbench'))
         bounds = self.screen().availableGeometry()
@@ -25,8 +25,12 @@ class Workbench(QMainWindow):
         self.closing = False
         self.controller = SessionController(self)
         self.language_manager = QApplication.instance().language_manager
-        self.language_manager.register_controller(self.controller)
         self._build_ui()
+        self.settings = SettingsController(QApplication.instance().preference_store, self.language_manager,
+                                          busy=self.active, capture=self.capture_settings, restore=self.restore_settings,
+                                          remember=remember_settings, parent=self)
+        self.settings.failed.connect(self.settings_failed)
+        self.settings.saved.connect(lambda: self.set_status(tr("Configuration saved automatically"), "success"))
         self._sync_language()
         self.editor.language.currentIndexChanged.connect(self._language_selected)
         self.language_manager.changed.connect(self.retranslate_ui)
@@ -45,7 +49,15 @@ class Workbench(QMainWindow):
         self.controller.message.connect(self.logs.appendPlainText)
         self.controller.failed.connect(self.error)
         self.controller.completed.connect(self.session_completed)
-        self.apply_config(TaskConfig(mode="tcp-slave", duration_s=0))
+        self.apply_config(TaskConfig(mode="tcp-slave", duration_s=0), persist=False)
+        try:
+            self.settings.restore()
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            self.logs.appendPlainText(tr("Saved settings could not be restored: {detail}").format(detail=str(exc)))
+        self.editor.edited.connect(self.settings.save)
+        self.output.textChanged.connect(lambda *_: self.settings.save())
+        if self.settings.store.warning:
+            self.logs.appendPlainText(tr("Saved settings could not be restored: {detail}").format(detail=self.settings.store.warning))
         if self.language_manager.warning:
             self.logs.appendPlainText(tr("Translations could not be loaded; using English. {detail}").format(detail=self.language_manager.warning))
 
@@ -114,14 +126,27 @@ class Workbench(QMainWindow):
         if self.active():
             self._sync_language()
             return False
-        try:
-            changed = self.language_manager.change_language(mode)
-        except (OSError, ValueError) as exc:
-            self._sync_language()
-            self.error(tr("Cannot change the display language: {detail}").format(detail=str(exc)))
-            return False
+        changed = self.settings.change_language(mode)
         self._sync_language()
         return changed
+
+    def capture_settings(self):
+        return dict(configuration=self.editor.capture_draft(), output_directory=self.output.text())
+
+    def restore_settings(self, state):
+        if not isinstance(state, dict) or not isinstance(state.get("output_directory"), str):
+            raise ValueError("Invalid saved session settings")
+        self.editor.restore_draft(state["configuration"])
+        bind(self.output, "setText", state["output_directory"])
+        try:
+            preview = self.configuration()
+        except ValueError:
+            preview = TaskConfig.from_mapping(self.editor.base_config)
+        self.live_panel.configure(preview)
+        self.update_connection_summary()
+
+    def settings_failed(self, error):
+        self.error(tr("Configuration changes were not saved: {detail}").format(detail=str(error)))
 
     def retranslate_ui(self):
         retranslate_tree(self)
@@ -142,12 +167,14 @@ class Workbench(QMainWindow):
     def configuration(self):
         return self.editor.configuration()
 
-    def apply_config(self, config):
+    def apply_config(self, config, *, persist=True):
         if self.active():
             return False
         self.editor.apply_config(config)
         self.live_panel.configure(config)
         self.update_connection_summary()
+        if persist:
+            return self.settings.save()
         return True
 
     def update_connection_summary(self, *_):
@@ -262,8 +289,8 @@ class Workbench(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, tr('Load configuration'), "", "JSON (*.json)")
         if path and not self.active():
             try:
-                self.apply_config(load_config(path))
-                self.set_status(tr('Configuration loaded'), "success")
+                if self.apply_config(load_config(path)):
+                    self.set_status(tr('Configuration loaded'), "success")
             except Exception as exc:
                 self.error(exc)
 
@@ -275,7 +302,7 @@ class Workbench(QMainWindow):
             config = self.configuration()
             path, _ = QFileDialog.getSaveFileName(self, tr('Save configuration'), "config.json", "JSON (*.json)")
             if path and not self.active():
-                Path(path).write_text(json.dumps(config.to_mapping(), ensure_ascii=False, indent=2), encoding="utf-8")
+                self.settings.export_configuration(path, config)
                 self.set_status(tr('Configuration saved'), "success")
         except Exception as exc:
             self.error(exc)

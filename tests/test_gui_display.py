@@ -30,7 +30,7 @@ class DisplayTests(unittest.TestCase):
 from PySide6.QtCore import Qt
 from modbus_dev.gui import Workbench, create_application
 app = create_application(language="zh_CN")
-window = Workbench()
+window = Workbench(remember_settings=False)
 window.show()
 app.processEvents()
 assert app.platformName() == 'offscreen'

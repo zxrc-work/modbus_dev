@@ -126,7 +126,7 @@ class GuiTests(unittest.TestCase):
     def setUp(self):
         from modbus_dev.gui import Workbench
         self.root = tempfile.TemporaryDirectory()
-        self.window = Workbench()
+        self.window = Workbench(remember_settings=False)
         self.window.output.setText(self.root.name)
         self.window.fields["port"].setText(str(available_port()))
         self.window.show()

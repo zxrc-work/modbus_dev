@@ -1,11 +1,10 @@
 """Qt translation loading and text bindings that preserve editable widget values."""
 from pathlib import Path
-import weakref
 
 from PySide6.QtCore import QCoreApplication, QLibraryInfo, QLocale, QObject, QPersistentModelIndex, QSettings, QSignalBlocker, QTranslator, Signal
 from PySide6.QtWidgets import QGroupBox, QPushButton, QTableWidget, QTableWidgetItem, QWidget
 
-from .preferences import LANGUAGES, PreferenceStore
+from .preferences import LANGUAGES
 
 CONTEXT = "ModbusDev"
 
@@ -151,14 +150,12 @@ def resolve_locale(mode, language_tags=None):
 class LanguageManager(QObject):
     changed = Signal()
 
-    def __init__(self, app, *, language=None, preferences=None):
+    def __init__(self, app, *, language="system"):
         super().__init__(app)
         self.app = app
-        self.preferences = preferences or PreferenceStore()
-        self.mode = language if language in LANGUAGES else self.preferences.language()
+        self.mode = language if language in LANGUAGES else "system"
         self.locale = "en"
         self._translators = []
-        self._controllers = []
         self.warning = None
         try:
             self._install(self.mode)
@@ -166,10 +163,9 @@ class LanguageManager(QObject):
             self.mode = "en"
             self.warning = str(exc)
 
-    def register_controller(self, controller):
-        self._controllers.append(weakref.ref(controller))
-
-    def _prepare(self, mode):
+    def prepare(self, mode):
+        if mode not in LANGUAGES:
+            raise ValueError("Unsupported UI language")
         locale = resolve_locale(mode)
         translators = []
         if locale == "zh_CN":
@@ -193,19 +189,10 @@ class LanguageManager(QObject):
         self.mode, self.locale = mode, locale
 
     def _install(self, mode):
-        locale, translators = self._prepare(mode)
+        locale, translators = self.prepare(mode)
         self._replace(mode, locale, translators)
 
-    def change_language(self, mode):
-        if mode not in LANGUAGES:
-            raise ValueError("Unsupported UI language")
-        self._controllers = [reference for reference in self._controllers if reference() is not None]
-        if any(reference().busy for reference in self._controllers):
-            return False
-        if mode == self.mode:
-            return True
-        locale, translators = self._prepare(mode)
-        self.preferences.save_language(mode)
+    def apply(self, mode, prepared):
+        locale, translators = prepared
         self._replace(mode, locale, translators)
         self.changed.emit()
-        return True

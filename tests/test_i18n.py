@@ -22,23 +22,23 @@ class PreferenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "preferences.json"
             store = PreferenceStore(path)
-            self.assertEqual(store.language(), "system")
-            store.save_language("en")
-            self.assertEqual(PreferenceStore(path).language(), "en")
+            self.assertEqual(store.load().get("language", "system"), "system")
+            store.save({"language": "en"})
+            self.assertEqual(PreferenceStore(path).load().get("language", "system"), "en")
             self.assertEqual(json.loads(path.read_text())["language"], "en")
             with patch("modbus_dev.ui.preferences.os.replace", side_effect=OSError("read-only preferences")):
                 with self.assertRaises(OSError):
-                    store.save_language("zh_CN")
-            self.assertEqual(store.language(), "en")
+                    store.save({"language": "zh_CN"})
+            self.assertEqual(store.load().get("language", "system"), "en")
             self.assertEqual(list(path.parent.glob("*.tmp")), [])
             self.assertNotIn("language", TaskConfig().to_mapping())
 
     def test_malformed_and_unknown_preferences_use_system_language(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "preferences.json"
-            for content in ("broken", "[]", '{"language":"unsupported"}'):
+            for content in ("broken", "[]", '{"schema_version":99}'):
                 path.write_text(content, encoding="utf-8")
-                self.assertEqual(PreferenceStore(path).language(), "system")
+                self.assertEqual(PreferenceStore(path).load().get("language", "system"), "system")
 
 
 @unittest.skipUnless(HAS_QT, "Requires the optional GUI dependency")
@@ -53,8 +53,8 @@ class TranslationTests(unittest.TestCase):
         from modbus_dev.gui import Workbench
         self.root = tempfile.TemporaryDirectory()
         self.manager = self.app.language_manager
-        self.previous_store = self.manager.preferences
-        self.manager.preferences = PreferenceStore(Path(self.root.name) / "preferences.json")
+        self.previous_store = self.app.preference_store
+        self.app.preference_store = PreferenceStore(Path(self.root.name) / "preferences.json")
         self.manager._install("zh_CN")
         self.window = Workbench()
         self.window.output.setText(self.root.name)
@@ -77,7 +77,7 @@ class TranslationTests(unittest.TestCase):
         self.window.close()
         self.window.deleteLater()
         self.app.processEvents()
-        self.manager.preferences = self.previous_store
+        self.app.preference_store = self.previous_store
         self.manager._install("zh_CN")
         self.root.cleanup()
 
@@ -136,13 +136,13 @@ class TranslationTests(unittest.TestCase):
         self.assertFalse(checkbox.isChecked())
         self.assertEqual(before, (w.fields["serial.port"], w.fields["serial.baud"], w.point_editors[0]))
         self.assertEqual(spy.count(), 0)
-        self.assertEqual(self.manager.preferences.language(), "en")
+        self.assertEqual(self.app.preference_store.load().get("language", "system"), "en")
         self.assertTrue(w.set_language("zh_CN"))
         self.assertEqual(w.start_button.text(), "启动会话")
         self.assertEqual(w.metric_labels[1].text(), "有效 ACK")
 
     def test_failed_preference_write_keeps_current_language_and_selection(self):
-        with patch.object(self.manager.preferences, "save_language", side_effect=OSError("disk unavailable")), \
+        with patch.object(self.app.preference_store, "save", side_effect=OSError("disk unavailable")), \
                 patch.object(self.window, "error") as error:
             self.assertFalse(self.window.set_language("en"))
         error.assert_called_once()
@@ -177,7 +177,7 @@ class TranslationTests(unittest.TestCase):
         self.assertFalse(w.output_box.isEnabled())
         self.assertFalse(w.editor.language.isEnabled())
         self.assertFalse(w.set_language("en"))
-        self.assertFalse(self.manager.change_language("en"))
+        self.assertFalse(w.settings.change_language("en"))
         self.assertFalse(w.apply_config(TaskConfig(mode="tcp-slave", port=port + 1)))
         with patch.object(QFileDialog, "getOpenFileName") as load, \
                 patch.object(QFileDialog, "getSaveFileName") as save, \
