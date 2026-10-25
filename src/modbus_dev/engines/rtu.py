@@ -15,7 +15,12 @@ from ..domain.transactions import Reply
 def open_serial(config):
     import os
     import serial
-    port = serial.Serial(port=None, baudrate=config.baud, bytesize=8,
+    if os.name == "nt":
+        from .serial_windows import TimeoutSerial
+        driver = TimeoutSerial
+    else:
+        driver = serial.Serial
+    port = driver(port=None, baudrate=config.baud, bytesize=8,
                          parity=config.parity, stopbits=config.stop_bits,
                          timeout=0, write_timeout=.05, xonxoff=False, rtscts=False, dsrdtr=False)
     try:
