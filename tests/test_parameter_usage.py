@@ -169,7 +169,7 @@ class ParameterGuiTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             self.window.output.setText(root)
             self.window.fields["port"].setText(str(port))
-            self.window.fields["serial.baud"].setText("unfinished")
+            self.window.fields["serial.baud"].setEditText("unfinished")
             self.window.fields["schedule_tolerance_percent"].setText("unfinished")
             self.window.fields["duration_s"].setText(".25")
             with patch.object(self.window, "error") as error:

@@ -1,5 +1,5 @@
 """统一控件外观；箭头和勾选使用矢量绘制，保留 Qt 原生输入与键盘行为。"""
-from PySide6.QtCore import QEvent, QObject, QPoint, QSize, Qt
+from PySide6.QtCore import QEvent, QObject, QPoint, QSignalBlocker, QSize, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QCheckBox, QComboBox, QFrame, QLabel, QListView, QProxyStyle, QSpinBox, QStyle,
@@ -87,6 +87,55 @@ class ComboBox(QComboBox):
         if y + popup.height() > bounds.bottom() + 1:
             y = self.mapToGlobal(QPoint(0, -popup.height() - 4)).y()
         popup.move(x, max(bounds.top(), y))
+
+
+class _SerialPortDelegate(_ItemDelegate):
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        description = index.data(Qt.ToolTipRole)
+        if description:
+            option.text += f" — {description}"
+
+
+class SerialPortComboBox(ComboBox):
+    """展开时枚举串口，编辑区始终保留设备名或用户输入。"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setEditable(True)
+        self.setInsertPolicy(QComboBox.NoInsert)
+        self.setCompleter(None)
+        self.lineEdit().setPlaceholderText("选择或输入串口")
+        self.setToolTip("选择可用串口或手动输入名称；每次展开自动刷新列表。")
+        self.view().setItemDelegate(_SerialPortDelegate(self.view()))
+
+    def refresh_ports(self):
+        from serial.tools.list_ports import comports
+
+        current = self.currentText()
+        try:
+            ports = sorted(comports())
+            notice = "未发现串口，可手动输入" if not ports else ""
+            error = ""
+        except Exception as exc:
+            ports = []
+            notice = "串口扫描失败，可手动输入"
+            error = str(exc)
+        # 刷新候选项不改变配置，也不让 clear/addItem 临时选中首项。
+        with QSignalBlocker(self):
+            self.clear()
+            for port in ports:
+                self.addItem(port.device)
+                self.setItemData(self.count() - 1, port.description, Qt.ToolTipRole)
+            if notice:
+                self.addItem(notice)
+                self.model().item(0).setEnabled(False)
+                self.setItemData(0, error, Qt.ToolTipRole)
+            self.setCurrentIndex(self.findText(current, Qt.MatchExactly) if ports else -1)
+            self.setEditText(current)
+
+    def showPopup(self):
+        self.refresh_ports()
+        super().showPopup()
 
 
 class SpinBox(QSpinBox):

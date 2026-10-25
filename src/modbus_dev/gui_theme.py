@@ -118,6 +118,8 @@ def application_stylesheet():
         border-left: 1px solid {c['line']}; background: {c['hover']}; }}
     QSpinBox::up-button:hover, QSpinBox::down-button:hover {{ background: {c['pressed']}; }}
     QComboBox {{ padding-right: 32px; }}
+    QComboBox QLineEdit {{ border: none; border-radius: 0; padding: 0;
+        min-height: 0; max-height: 16777215px; background: transparent; }}
     QComboBox::drop-down {{ subcontrol-origin: border; subcontrol-position: top right;
         width: 30px; background: transparent; border: none; }}
     QComboBox::down-arrow {{ image: none; }}

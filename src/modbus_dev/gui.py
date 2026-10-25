@@ -24,7 +24,7 @@ from .domain.operations import OPERATIONS
 from .domain.transactions import valid_reply_counts
 from .domain.usage import ParameterUsage
 from .gui_theme import METRICS, application_palette, application_stylesheet, ui_font
-from .gui_widgets import CheckBox, ComboBox, WorkbenchStyle, card, label, refresh_style
+from .gui_widgets import CheckBox, ComboBox, SerialPortComboBox, WorkbenchStyle, card, label, refresh_style
 from .runtime import default_output_directory, worker_command
 
 
@@ -82,8 +82,10 @@ class Workbench(QMainWindow):
         self.fields["access_mode"].currentIndexChanged.connect(self.operation_changed)
         self.fields["master_operation"].currentIndexChanged.connect(self.operation_changed)
         self.fields["readback_every"].textChanged.connect(self.operation_changed)
-        for key in ("host", "port", "unit", "serial.port", "serial.baud"):
+        for key in ("host", "port", "unit"):
             self.fields[key].textChanged.connect(self.update_connection_summary)
+        for key in ("serial.port", "serial.baud"):
+            self.fields[key].currentTextChanged.connect(self.update_connection_summary)
         self.apply_config(TaskConfig.from_mapping(self.base_config))
 
     def _build_ui(self):
@@ -157,10 +159,17 @@ class Workbench(QMainWindow):
             form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
             for key, caption, choices in rows:
-                widget = ComboBox() if choices else QLineEdit()
+                widget = (SerialPortComboBox() if key == "serial.port" else
+                          ComboBox() if choices else QLineEdit())
                 if choices:
                     for value in choices:
                         widget.addItem(CHOICE_LABELS.get(value, value), value)
+                if key == "serial.baud":
+                    widget.setEditable(True)
+                    widget.setInsertPolicy(QComboBox.NoInsert)
+                    widget.setCompleter(None)
+                    widget.lineEdit().setPlaceholderText("选择或输入波特率")
+                    widget.setToolTip("选择常用波特率或手动输入；自定义速率须由串口和对端设备支持，且两端一致。")
                 widget.setObjectName(key)
                 widget.setAccessibleName(caption)
                 self.fields[key] = widget
@@ -173,14 +182,13 @@ class Workbench(QMainWindow):
                                       ("policy", "运行策略", ["continuous", "strict"])])
         self.access_box = group(connection, "RTU 访问权限", [("access_mode", "权限", ["read-only", "read-write"])])
         self.tcp_box = group(connection, "TCP 监听", [("host", "绑定地址", None), ("port", "端口", None)])
-        self.serial_box = group(connection, "串口连接", [("serial.port", "串口", None), ("serial.baud", "波特率", None),
+        self.serial_box = group(connection, "串口连接", [("serial.port", "串口", None),
+                                                       ("serial.baud", "波特率", ["1200", "2400", "4800", "9600", "19200", "38400",
+                                                                              "57600", "115200"]),
                                                        ("serial.parity", "校验位", ["N", "E", "O"]),
                                                        ("serial.stop_bits", "停止位", ["1", "2"])])
         self.rts = CheckBox("驱动 RTS 切换（仅 Windows）")
         self.serial_box.layout().addRow(self.rts)
-        refresh = QPushButton("查看可用串口")
-        refresh.clicked.connect(self.ports)
-        self.serial_box.layout().addRow(refresh)
         group(connection, "设备", [("unit", "站号", None)])
         self.timing_box = group(connection, "统一运行时序", [("period_ms", "数据周期 ms", None), ("timeout_ms", "I/O 超时 ms", None),
                                 ("duration_s", "运行时长 s", None)])
@@ -329,6 +337,8 @@ class Workbench(QMainWindow):
 
     def text(self, key):
         field = self.fields[key]
+        if isinstance(field, QComboBox) and field.isEditable():
+            return field.currentText().strip()
         return str(field.currentData()) if isinstance(field, QComboBox) else field.text().strip()
 
     def apply_config(self, config):
@@ -340,7 +350,10 @@ class Workbench(QMainWindow):
             for part in key.split("."):
                 value = value[part]
             text = str(value)
-            if isinstance(field, QComboBox):
+            if isinstance(field, QComboBox) and field.isEditable():
+                field.setCurrentIndex(field.findText(text, Qt.MatchExactly))
+                field.setEditText(text)
+            elif isinstance(field, QComboBox):
                 field.setCurrentIndex(field.findData(text))
             else:
                 field.setText(text)
@@ -363,7 +376,8 @@ class Workbench(QMainWindow):
                 original = self.base_config
                 for part in key.split("."):
                     original = original[part]
-                if value == str(original) or (isinstance(self.fields[key], QComboBox) and self.fields[key].currentIndex() < 0):
+                field = self.fields[key]
+                if value == str(original) or (isinstance(field, QComboBox) and not field.isEditable() and field.currentIndex() < 0):
                     value = original
                 if "." in key:
                     parent, name = key.split(".")
@@ -520,14 +534,6 @@ class Workbench(QMainWindow):
             if path:
                 Path(path).write_text(json.dumps(config.to_mapping(), ensure_ascii=False, indent=2), encoding="utf-8")
                 self.set_status("配置已保存", "success")
-        except Exception as exc:
-            self.error(exc)
-
-    def ports(self):
-        from serial.tools.list_ports import comports
-        try:
-            ports = list(comports())
-            QMessageBox.information(self, "可用串口", "\n".join(f"{p.device} — {p.description}" for p in ports) or "未发现串口")
         except Exception as exc:
             self.error(exc)
 

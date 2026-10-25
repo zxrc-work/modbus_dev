@@ -228,7 +228,7 @@ class GuiTests(unittest.TestCase):
                 self.app.processEvents()
                 widgets = [widget for kind in (QComboBox, QLineEdit, QPushButton, QSpinBox)
                            for widget in self.window.findChildren(kind)
-                           if not (isinstance(widget, QLineEdit) and isinstance(widget.parent(), QSpinBox))]
+                           if not (isinstance(widget, QLineEdit) and isinstance(widget.parent(), (QSpinBox, QComboBox)))]
                 for widget in widgets:
                     if widget.isVisible():
                         self.assertEqual(widget.height(), METRICS.control_height, widget.objectName() or widget.text())
