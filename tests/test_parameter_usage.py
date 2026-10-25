@@ -100,7 +100,7 @@ class ParameterGuiTests(unittest.TestCase):
     def setUpClass(cls):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
         from modbus_dev.gui import create_application
-        cls.app = create_application()
+        cls.app = create_application(language="zh_CN")
 
     def setUp(self):
         from modbus_dev.gui import Workbench

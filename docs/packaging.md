@@ -29,6 +29,11 @@ macOS 的两个入口均放在 `ModbusDev.app/Contents/MacOS/`，主应用入口
 
 ## 源码保护
 
+发布前自动检查并编译 `src/modbus_dev/ui/translations/modbus_dev_zh_CN.ts`。
+编译后的 `.qm` 复制到本机模块目录并纳入双入口便携包，运行时从包内定位，不依赖当前工作目录。
+普通 Python 安装也通过 package-data 携带翻译资源。中文/英文切换及资源加载须在对应产物中验证。
+手动维护命令为 `python tools/translations.py --check` 和 `python tools/translations.py --compile`。
+
 编译 `src/modbus_dev/` 除 `__init__.py`、`__main__.py` 外的全部模块，包括 GUI、worker、
 运行入口和内置诊断。初始化文件仅允许包说明和接线；发布版不使用源码目录的 `__main__.py`。
 启用 Cython `binding=True`、`annotation_typing=False`，保留边界检查、负索引和 Python 除法，

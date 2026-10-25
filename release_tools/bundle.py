@@ -22,7 +22,8 @@ from PyInstaller.utils.hooks import copy_metadata
 metadata = []
 for name in ('pymodbus', 'pyserial', 'PySide6', 'PySide6_Essentials', 'shiboken6'):
     metadata += copy_metadata(name)
-datas = metadata + [({str(stage / 'BUILD_INFO.json')!r}, 'release')]
+datas = metadata + [({str(stage / 'BUILD_INFO.json')!r}, 'release'),
+                    ({str(native / config.package / 'ui/translations')!r}, {config.package + '/ui/translations'!r})]
 common = dict(pathex=[{str(native)!r}], binaries=[], datas=datas, hiddenimports={hidden!r},
               excludes=['Cython', 'setuptools', 'pytest', 'tkinter', 'PyQt5', 'PyQt6', 'PySide2'], noarchive=False)
 gui_a = Analysis([{str(stage / 'gui_entry.py')!r}], **common)

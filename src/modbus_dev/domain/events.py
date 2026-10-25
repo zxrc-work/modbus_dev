@@ -20,6 +20,8 @@ class Event:
 class ConfigurationError(ValueError):
     code = "configuration_invalid"
 
-    def __init__(self, path, message):
+    def __init__(self, path, message, *, reason=None, parameters=None):
         self.path = path
+        self.reason = reason or message
+        self.parameters = parameters or {}
         super().__init__(f"{path}: {message}")

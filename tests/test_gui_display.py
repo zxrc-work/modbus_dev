@@ -29,7 +29,7 @@ class DisplayTests(unittest.TestCase):
         script = '''
 from PySide6.QtCore import Qt
 from modbus_dev.gui import Workbench, create_application
-app = create_application()
+app = create_application(language="zh_CN")
 window = Workbench()
 window.show()
 app.processEvents()
@@ -70,7 +70,7 @@ window.close()
         environment = clean_qt_environment()
         probe = subprocess.run(
             [sys.executable, "-c", "from modbus_dev.gui import create_application; "
-             "app=create_application(); print(app.primaryScreen().devicePixelRatio())"],
+             "app=create_application(language='zh_CN'); print(app.primaryScreen().devicePixelRatio())"],
             cwd=PROJECT, env=environment, capture_output=True, text=True, timeout=30, check=True)
         native_dpr = float(probe.stdout.strip())
         for scale in sorted({1, 1.25, 1.5, 1.75, 2, native_dpr}):

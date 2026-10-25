@@ -121,7 +121,7 @@ class GuiTests(unittest.TestCase):
     def setUpClass(cls):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
         from modbus_dev.gui import create_application
-        cls.app = create_application()
+        cls.app = create_application(language="zh_CN")
 
     def setUp(self):
         from modbus_dev.gui import Workbench
@@ -159,6 +159,25 @@ class GuiTests(unittest.TestCase):
                                                  readback_every=2 if mode == "rtu-master" else 0))
             self.window.apply_config(config)
             self.assertEqual(self.window.configuration(), config)
+
+    def test_gui_bridge_archives_a_completed_session(self):
+        root = Path(self.root.name)
+        path = root / "bridge-config.json"
+        path.write_text(json.dumps(dict(mode="tcp-slave", host="127.0.0.1", port=available_port(), duration_s=.25)),
+                        encoding="utf-8")
+        output = root / "archived"
+        bridge = Path(__file__).resolve().parents[1] / "tools/verify_gui_session.py"
+        process = subprocess.run([sys.executable, str(bridge), str(path), "--output", str(output)],
+                                 capture_output=True, text=True, encoding="utf-8", timeout=20)
+        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+        result = json.loads(process.stdout)
+        self.assertEqual(result["exit_code"], 0)
+        summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
+        self.assertTrue(summary["evidence_complete"])
+        self.assertEqual(summary["run"]["counters"], result["counters"])
+        self.assertTrue((output / "config.json").is_file())
+        self.assertTrue(list(output.glob("events*.jsonl")))
+        self.assertTrue((root / "gui-preview.log").is_file())
 
     def test_retention_and_queue_loss_are_displayed_separately(self):
         self.window.show_recording(dict(evidence_complete=False, retention_truncated=True,

@@ -56,7 +56,7 @@ def gui_check(output):
     require(frozen(), "GUI 自检必须运行实际发布入口")
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    app = create_application()
+    app = create_application(language="zh_CN")
     window = Workbench()
     window.output.setText(str(output.parent / output.stem))
     cases = []

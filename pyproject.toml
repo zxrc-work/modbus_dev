@@ -22,6 +22,9 @@ modbus-dev-gui = "modbus_dev.desktop:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"modbus_dev.ui" = ["translations/*.ts", "translations/*.qm"]
+
 [tool.modbus-dev.release]
 application = "ModbusDev"
 package = "modbus_dev"

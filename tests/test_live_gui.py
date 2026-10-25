@@ -16,7 +16,7 @@ from modbus_dev.application.live import LiveValues
 from modbus_dev.domain.events import Event
 from modbus_dev.gui import Workbench, create_application
 from modbus_dev.domain.config import TaskConfig
-app = create_application()
+app = create_application(language="zh_CN")
 window = Workbench()
 config = TaskConfig.from_mapping(dict(mode='rtu-master', serial=dict(port='TEST', baud=115200), duration_s=0))
 window.apply_config(config)
@@ -72,7 +72,7 @@ import time
 from PySide6.QtCore import QEventLoop, QTimer
 from modbus_dev.gui import Workbench, create_application
 from modbus_dev.domain.config import TaskConfig
-app = create_application()
+app = create_application(language="zh_CN")
 window = Workbench()
 window.apply_config(TaskConfig.from_mapping(dict(mode='rtu-slave',
     serial=dict(port='TEST', baud=115200), duration_s=0)))
@@ -128,7 +128,7 @@ window.close()
 import time
 from modbus_dev.gui import Workbench, create_application
 from modbus_dev.domain.config import TaskConfig
-app = create_application()
+app = create_application(language="zh_CN")
 window = Workbench()
 window.resize(1280, 900)
 window.apply_config(TaskConfig.from_mapping(dict(mode='rtu-master', access_mode='read-only',

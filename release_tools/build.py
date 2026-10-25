@@ -18,6 +18,7 @@ from .bundle import make_bundle
 from .compile import compile_package
 from .config import ReleaseConfig, TARGETS, inspect_environment, source_identity
 from .verify import verify_release
+from .translations import compile_catalog
 
 
 def save(path, value):
@@ -56,6 +57,7 @@ def unpack_archive(archive, destination):
 def build(config):
     config.require_native_target()
     dependencies = inspect_environment(config)
+    compile_catalog(config.root)
     identity = source_identity(config.root)
     work = config.root / "build/releases"
     work.mkdir(parents=True, exist_ok=True)

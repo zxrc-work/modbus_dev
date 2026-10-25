@@ -58,6 +58,9 @@ def compile_package(config, stage):
         destination = native / path.relative_to(source)
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, destination)
+    translations = native / config.package / "ui/translations"
+    translations.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source / config.package / "ui/translations/modbus_dev_zh_CN.qm", translations)
     expected = []
     for name in protected:
         base = native / Path(*name.split("."))

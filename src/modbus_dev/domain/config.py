@@ -12,8 +12,8 @@ MAX_POINTS = 4
 REGISTERS_PER_POINT = 2
 
 
-def fail(path, message):
-    raise ConfigurationError(path, message)
+def fail(path, message, *, reason=None, **parameters):
+    raise ConfigurationError(path, message, reason=reason, parameters=parameters)
 
 
 def number(value, path, low, high, integer=False):
@@ -21,12 +21,12 @@ def number(value, path, low, high, integer=False):
     if isinstance(value, bool) or not isinstance(value, expected):
         fail(path, "must be an integer" if integer else "must be a number")
     if not math.isfinite(value) or not low <= value <= high:
-        fail(path, f"must be finite and in {low}..{high}")
+        fail(path, f"must be finite and in {low}..{high}", reason="numeric_range", low=low, high=high)
 
 
 def choice(value, path, choices):
     if value not in choices:
-        fail(path, "must be one of " + ", ".join(map(str, choices)))
+        fail(path, "must be one of " + ", ".join(map(str, choices)), reason="invalid_choice", choices=", ".join(map(str, choices)))
 
 
 def text(value, path):
@@ -39,7 +39,7 @@ def section(data, path, allowed):
         fail(path, "must be an object")
     unknown = set(data) - set(allowed)
     if unknown:
-        fail(path, "unknown fields: " + ", ".join(sorted(unknown)))
+        fail(path, "unknown fields: " + ", ".join(sorted(unknown)), reason="unknown_fields", fields=", ".join(sorted(unknown)))
     return data
 
 
@@ -204,7 +204,7 @@ class TaskConfig:
                 fail("points", "independent points require schema_version=2")
             addresses = data.pop("addresses", [0])
             if not isinstance(addresses, (list, tuple)) or not 1 <= len(addresses) <= MAX_POINTS:
-                fail("addresses", f"provide 1..{MAX_POINTS} float32 point addresses")
+                fail("addresses", f"provide 1..{MAX_POINTS} float32 point addresses", reason="address_count", maximum=MAX_POINTS)
             source = SourceConfig.from_mapping(data.pop("source", {}), active=usage.source)
             source.validate(data.get("period_ms", 100), len(addresses), active=usage.source)
             # 旧版共享源只在加载边界展开；运行时始终使用每点独立配置。
@@ -218,7 +218,7 @@ class TaskConfig:
                 fail("config", "schema_version=2 uses points instead of addresses/source")
             raw_points = data.pop("points", [asdict(default_point(0))])
             if not isinstance(raw_points, (list, tuple)) or not 1 <= len(raw_points) <= MAX_POINTS:
-                fail("points", f"provide 1..{MAX_POINTS} point configurations")
+                fail("points", f"provide 1..{MAX_POINTS} point configurations", reason="point_count", maximum=MAX_POINTS)
             points = [PointConfig.from_mapping(point, f"points[{i}]", source_used=usage.source)
                       for i, point in enumerate(raw_points)]
         points.extend(default_point(i) for i in range(len(points), MAX_POINTS))
@@ -240,7 +240,7 @@ class TaskConfig:
         if usage.master:
             choice(self.master_operation, "master_operation", tuple(OPERATIONS))
         if self.mode == "rtu-master" and self.access_mode == "read-only" and self.master_function in (6, 16):
-            fail("master_operation", "只读主站不能执行写入操作")
+            fail("master_operation", "只读主站不能执行写入操作", reason="readonly_write")
         number(self.unit, "unit", 1, 247, True)
         number(self.period_ms, "period_ms", 1, 60000, True)
         if usage.master:
@@ -253,15 +253,15 @@ class TaskConfig:
             number(self.read_function, "read_function", 3, 3, True)
         choice(self.byte_order, "byte_order", ("B1234", "B4321", "B2143", "B3412"))
         if not 1 <= len(self.points) <= MAX_POINTS:
-            fail("points", f"provide 1..{MAX_POINTS} point configurations")
+            fail("points", f"provide 1..{MAX_POINTS} point configurations", reason="point_count", maximum=MAX_POINTS)
         for i, point in enumerate(self.points):
             point.validate(self.period_ms, f"points[{i}]", source_used=usage.source)
         if not self.enabled_points:
-            fail("points", "请至少启用一个测点")
+            fail("points", "请至少启用一个测点", reason="no_enabled_points")
         conflicts = point_conflicts(self.points)
         if conflicts:
             first, second = conflicts[0]
-            fail("points", f"测点 {first + 1} 与测点 {second + 1} 的寄存器范围重叠")
+            fail("points", f"测点 {first + 1} 与测点 {second + 1} 的寄存器范围重叠", reason="point_overlap", first=first + 1, second=second + 1)
         if usage.serial:
             self.serial.validate()
         else:
@@ -273,7 +273,7 @@ class TaskConfig:
             minimum = minimum_cycle_ms(self)
             if not minimum < self.timeout_ms < self.period_ms - self.serial.gap_ms:
                 fail("timeout_ms", f"must exceed {minimum:.3f} ms transaction budget and leave "
-                     f"{self.serial.gap_ms:.3f} ms silence before the next slot")
+                     f"{self.serial.gap_ms:.3f} ms silence before the next slot", reason="transaction_budget", minimum=minimum, gap=self.serial.gap_ms)
 
     def to_mapping(self):
         return asdict(self)
@@ -309,12 +309,12 @@ def load_config(path):
         result = {}
         for key, value in pairs:
             if key in result:
-                fail("config", "duplicate field: " + key)
+                fail("config", "duplicate field: " + key, reason="duplicate_field", field=key)
             result[key] = value
         return result
     try:
         raw = Path(path).read_text(encoding="utf-8-sig")
         data = json.loads(raw, object_pairs_hook=unique_pairs)
     except json.JSONDecodeError as error:
-        fail("config", f"invalid JSON at line {error.lineno}, column {error.colno}")
+        fail("config", f"invalid JSON at line {error.lineno}, column {error.colno}", reason="invalid_json", line=error.lineno, column=error.colno)
     return TaskConfig.from_mapping(data)

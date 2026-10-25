@@ -14,6 +14,7 @@ def main():
     parser.add_argument("--scale", type=float, help="Qt scale multiplier; native display scale still applies")
     parser.add_argument("--width", type=int)
     parser.add_argument("--height", type=int)
+    parser.add_argument("--language", choices=("system", "zh_CN", "en"), default="zh_CN")
     args = parser.parse_args()
     if args.native:
         if sys.platform != "win32":
@@ -32,7 +33,7 @@ def main():
     from modbus_dev.gui import Workbench, create_application
     from modbus_dev.gui_theme import ui_font
 
-    app = create_application()
+    app = create_application(language=args.language)
     # The offscreen plugin on Windows does not enumerate the installed fonts.
     if not args.native and sys.platform == "win32":
         fonts = Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts"
@@ -49,7 +50,8 @@ def main():
     app.processEvents()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     report = dict(platform=app.platformName(), platform_setting=os.environ["QT_QPA_PLATFORM"],
-                  dpr=window.devicePixelRatioF(), logical_size=[window.width(), window.height()],
+                  dpr=window.devicePixelRatioF(), language=app.language_manager.locale,
+                  logical_size=[window.width(), window.height()],
                   available_size=[window.screen().availableGeometry().width(),
                                   window.screen().availableGeometry().height()],
                   fonts=app.font().families(), hinting=app.font().hintingPreference().name,

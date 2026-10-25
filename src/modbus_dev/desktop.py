@@ -30,7 +30,8 @@ def main(argv=None):
             args.self_test.write_text(json.dumps({"status": "failed", "error": detail}), encoding="utf-8")
         else:
             from .gui import create_application
+            from .ui.i18n import tr
             from PySide6.QtWidgets import QMessageBox
             app = create_application()
-            QMessageBox.critical(None, "启动失败", f"启动诊断：{log}\n{detail.splitlines()[-1]}")
+            QMessageBox.critical(None, tr("Startup failed"), tr("Startup diagnostics: {path}\n{detail}").format(path=log, detail=detail.splitlines()[-1]))
         return 1

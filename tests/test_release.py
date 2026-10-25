@@ -20,6 +20,7 @@ if BUILD_SUPPORTED:
     from release_tools.compile import discover_modules
     from release_tools.config import ReleaseConfig
     from release_tools.verify import clean_environment, crc_frame
+    from release_tools.translations import validate_catalog
 
 
 class RuntimeTests(unittest.TestCase):
@@ -60,6 +61,13 @@ class RuntimeTests(unittest.TestCase):
 
 @unittest.skipUnless(BUILD_SUPPORTED, "发布构建工具需要 Python 3.11+；应用运行基线不变")
 class BuildTests(unittest.TestCase):
+    def test_translation_catalog_is_complete_and_bundled(self):
+        self.assertGreater(validate_catalog(ROOT), 0)
+        for target in ("macos-arm64", "windows-x64", "kylin-x86_64"):
+            config = ReleaseConfig.load(ROOT, target)
+            spec = render_spec(config, Path("/stage"), Path("/native"), [], [])
+            self.assertIn("ui/translations", spec.replace("\\\\", "/"))
+
     def test_every_business_module_is_native_and_dynamic_backends_are_declared(self):
         protected, hidden = discover_modules(ROOT / "src", "modbus_dev")
         self.assertTrue({"modbus_dev.gui", "modbus_dev.cli", "modbus_dev.worker", "modbus_dev.selfcheck",

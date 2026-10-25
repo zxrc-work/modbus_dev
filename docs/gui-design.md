@@ -23,11 +23,56 @@
 - RTU 主站首页展示有效 ACK / 有效读应答合计，详细统计保留普通与关联不确定分类。历史关联风险使用独立提示，
   不把历史标记反复表现为新故障；TX 提交质量与确认状态分别展示，确认更新不增加曲线点。
 - 窗口按可用桌面设定初始大小；配置与运行区均可滚动。逻辑宽度不足 920 时上下排列，分隔条可拖动。
-- `gui_theme.py` 集中定义颜色、字体、调色板、控件状态、逻辑尺寸；页面通过语义角色选择外观。
-- `gui_widgets.py` 提供公共卡片、组合框弹层和矢量下拉箭头，保留 Qt 的鼠标、方向键、Enter 和 Escape 交互。
+- `ui/theme.py` 集中定义颜色、字体、调色板、控件状态、逻辑尺寸；页面通过语义角色选择外观。
+- `ui/widgets.py` 提供公共卡片、组合框弹层和矢量下拉箭头，保留 Qt 的鼠标、方向键、Enter 和 Escape 交互。
 
 主要规格为正文 14、辅助/日志 13、标题 24、输入/按钮/组合框外部高度 36，面板圆角 8。
 全部采用 Qt 逻辑像素，不根据屏幕倍率手动缩放控件。
+
+## 模块与配置生效规则
+
+`gui.py` 保留 `Workbench/create_application/main` 入口。界面实现位于 `ui/`：
+
+| 模块 | 职责 |
+| --- | --- |
+| `app.py`、`main_window.py` | 应用初始化、主窗口装配和组件协调 |
+| `configuration_panel.py`、`point_editor.py` | 三个配置页、表单草稿、局部联动与测点编辑 |
+| `session_controller.py` | 工作进程、协议解析、停止期限、结果及临时文件收尾 |
+| `monitor_panel.py`、`realtime_panel.py` | 会话操作、状态、统计、原文日志与实时数值/曲线 |
+| `theme.py`、`widgets.py` | 视觉规范与公共控件 |
+| `i18n.py`、`preferences.py`、`texts.py`、`errors.py` | 翻译、应用偏好和用户可见文案 |
+
+控制器的 `busy` 覆盖启动、运行、重连和停止收尾；只有收尾完成才解除编辑锁定。
+配置编辑、加载、保存、校验、结果父目录和语言切换的入口采用同一限制。
+普通参数编辑更新表单，模式与数据源只做必要的字段显隐、适用性和摘要联动；
+下一次启动统一读取、校验并生成独立的会话配置快照，不要求先导出配置文件。
+上一轮配置快照和统计保留自身的会话含义。
+
+## 中英文与应用偏好
+
+“其他设置 → 界面 → 显示语言”提供“跟随系统 / 简体中文 / English”。
+语言偏好保存在 `runtime.user_data_directory()/preferences.json`，不进入通信 `TaskConfig`。
+系统模式按系统界面语言优先级匹配中文或英文，均不支持时使用英文；macOS 优先读取界面语言偏好。
+通信停止后，选择语言立即更新现有控件文案，无需重启应用。历史日志、用户命名、路径和原始报文保留原文。
+
+英文作为源文案，中文通过 `translations/modbus_dev_zh_CN.ts` 及其编译产物 `.qm` 提供。
+`tr()` 标记源模板；`bind()` 记录控件的文字、标题、提示和无障碍名称等绑定。
+带参数模板先翻译后填值；下拉选项显示文案与协议值分离，语言刷新使用信号阻断保留选择及手工输入。
+各组件的 `retranslate_ui()` 刷新文案，不重新应用配置，不进行通信配置校验。
+结构化配置错误在界面翻译，CLI 原始诊断与底层异常详情保持原样，核心模块不依赖 Qt。
+
+语言偏好采用临时文件加原子替换写入，写入失败保持原语言和选项。缺失中文资源时，启动使用英文并记录提示。
+Qt 标准控件加载相应的 Qt 翻译；操作系统原生对话框内的系统文案由操作系统控制。
+
+新增文案后，运行以下命令提取缺失条目、填写中文翻译，再检查和编译；`.ts` 与 `.qm` 一同提交：
+
+```sh
+python tools/translations.py --update
+python tools/translations.py --check
+python tools/translations.py --compile
+```
+
+检查会拒绝缺失、未完成、重复的翻译和格式参数不一致；发布构建自动检查并编译翻译。
 
 ## Windows 清晰度
 
@@ -50,6 +95,7 @@ Qt 负责逐显示器 DPI 感知、窗口跨屏缩放和按实际像素渲染；
 ```powershell
 python tools/preview_gui.py --output-dir results/gui-preview/offscreen
 python tools/preview_gui.py --native --output-dir results/gui-preview/windows
+python tools/preview_gui.py --native --language en --output-dir results/gui-preview/english
 python -m unittest discover -s tests -v
 ```
 
@@ -68,7 +114,7 @@ Windows 输入法或麒麟桌面的实机验收。
 
 ## 配置与实现边界
 
-- `gui_points.py` 封装可复用测点编辑器；地址冲突规则与领域配置共用，不在界面复制通信逻辑。
+- `ui/point_editor.py` 封装可复用测点编辑器；地址冲突规则与领域配置共用，不在界面复制通信逻辑。
 - schema_version=2 使用 `points` 数组，最多四项，不足四项补为禁用槽位。每点独立保存
   `enabled/name/address/source`；`unit/byte_order/period_ms` 等仍为设备级设置。
 - 旧 schema_version=1 的 `addresses + source` 在加载边界展开成多个独立测点，初始保留原来的
