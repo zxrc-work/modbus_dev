@@ -275,7 +275,8 @@ class RealtimePanel(QWidget):
                 if column in (2, 3):
                     row = directions.get("tx" if column == 2 else "rx")
                     if row:
-                        bind(item, 'setToolTip', tr('FC{p0:02d} · {p1}\nRaw registers: {p2}\nAge: {p3:.3f} s').format(p0=row['function'], p1=self.describe_row(row), p2=' '.join((f'{word:04X}' for word in row['registers'])), p3=max(0, now - row['sampled_s'])))
+                        bind(item, 'setToolTip', tr('FC{p0:02d} · {p1}\nRaw registers: {p2}\nAge: {p3:.3f} s').format(p0=row['function'], p1=self.describe_row(row), p2=' '.join((f'{word:04X}' for word in row['registers'])), p3=max(0, now - row['sampled_s']))
+                             + "\n" + row.get("data_type", "float32") + " · " + row.get("byte_order", ""))
                         if now - row["sampled_s"] > self.snapshot.get("stale_after_s", 1.) or stale:
                             item.setForeground(QColor(COLORS["muted"]))
                 self.table.setItem(index, column, item)
@@ -294,4 +295,7 @@ class RealtimePanel(QWidget):
             return "—"
         if row["value"] is None:
             return " ".join(f"0x{word:04X}" for word in row["registers"])
+        # 整数按十进制完整显示，避免 uint32 被七位有效数字格式舍入。
+        if isinstance(row["value"], int):
+            return str(row["value"])
         return f"{row['value']:.7g}"

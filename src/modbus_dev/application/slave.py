@@ -1,7 +1,7 @@
 """从站保留独立源时钟；RTU 保持区与输入区由通信适配器分开管理。"""
 import traceback
 
-from ..domain.mapping import write_requests
+from ..domain.mapping import point_write_requests
 from ..domain.transactions import StopRequested
 from ..sources.synthetic import SyntheticSource
 from ..reporting.journal import LogWriteError
@@ -71,7 +71,7 @@ def run_slave(runner):
                         runner._emit("schedule_skip", "Skipped expired source updates", "WARNING", skipped=missed)
                     values = source.sample(current)
                     registers = {request.address + i: word
-                                 for request in write_requests(runner.config.addresses, values, runner.config.byte_order)
+                                 for request in point_write_requests(runner.config.enabled_points, values, runner.config.byte_order)
                                  for i, word in enumerate(request.registers)}
                     runner.engine.publish(registers)
                     runner.counters["source_updates"] += 1

@@ -1,0 +1,18 @@
+[
+  {"data_type":"int16","byte_order":"AB","value":-123,"registers":[65413]},
+  {"data_type":"int16","byte_order":"BA","value":-123,"registers":[34303]},
+  {"data_type":"uint16","byte_order":"AB","value":4660,"registers":[4660]},
+  {"data_type":"uint16","byte_order":"BA","value":4660,"registers":[13330]},
+  {"data_type":"int32","byte_order":"B1234","value":-2147483647,"registers":[32768,1]},
+  {"data_type":"int32","byte_order":"B4321","value":-2147483647,"registers":[256,128]},
+  {"data_type":"int32","byte_order":"B2143","value":-2147483647,"registers":[128,256]},
+  {"data_type":"int32","byte_order":"B3412","value":-2147483647,"registers":[1,32768]},
+  {"data_type":"uint32","byte_order":"B1234","value":305419896,"registers":[4660,22136]},
+  {"data_type":"uint32","byte_order":"B4321","value":305419896,"registers":[30806,13330]},
+  {"data_type":"uint32","byte_order":"B2143","value":305419896,"registers":[13330,30806]},
+  {"data_type":"uint32","byte_order":"B3412","value":305419896,"registers":[22136,4660]},
+  {"data_type":"float32","byte_order":"B1234","value":12.5,"registers":[16712,0]},
+  {"data_type":"float32","byte_order":"B4321","value":12.5,"registers":[0,18497]},
+  {"data_type":"float32","byte_order":"B2143","value":12.5,"registers":[18497,0]},
+  {"data_type":"float32","byte_order":"B3412","value":12.5,"registers":[0,16712]}
+]

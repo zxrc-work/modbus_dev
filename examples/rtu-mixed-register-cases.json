@@ -1,0 +1,15 @@
+[
+  {"name":"初始混合点表","request":"0300000006","response":"030cff85ffff0080010000004148"},
+  {"name":"FC06 完整整数写入","request":"060000ffff","response":"060000ffff"},
+  {"name":"FC06 原始读回","request":"0300000001","response":"0302ffff"},
+  {"name":"输入区不受写入影响","request":"0400000001","response":"0402ff85"},
+  {"name":"FC16 混合类型写入","request":"10000000060cfebf12340080010000004148","response":"1000000006"},
+  {"name":"混合原始编码读回","request":"0300000006","response":"030cfebf12340080010000004148"},
+  {"name":"原始半点写入诊断","request":"060003ffff","response":"060003ffff"},
+  {"name":"半点不重编码读回","request":"0300020002","response":"03040080ffff"},
+  {"name":"非有限浮点位模式注入","request":"10000400020400007f80","response":"1000040002"},
+  {"name":"非有限位模式原样读回","request":"0300040002","response":"030400007f80"},
+  {"name":"跨越未绑定地址整笔拒绝","request":"10000500020412345678","response":"9002"},
+  {"name":"拒绝后原始值不变","request":"0300040002","response":"030400007f80"},
+  {"name":"未绑定地址不开放","request":"0600061234","response":"8602"}
+]

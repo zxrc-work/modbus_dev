@@ -1,4 +1,4 @@
-"""Compose configuration and monitoring around one worker lifecycle."""
+"""组合配置和监视界面，统一管理工作进程的生命周期。"""
 from .i18n import tr, bind, retranslate_tree
 import json
 from PySide6.QtCore import QSignalBlocker, Qt, QUrl
@@ -251,7 +251,7 @@ class Workbench(QMainWindow):
         heading.addWidget(label(tr('Communication workbench'), "caption"))
         header.addLayout(heading)
         header.addStretch()
-        header.addWidget(label("RTU / TCP  ·  float32", "caption"))
+        header.addWidget(label("RTU / TCP  ·  16 / 32-bit", "caption"))
         outer.addLayout(header)
         self.workspace = QSplitter(Qt.Horizontal)
         self.workspace.setChildrenCollapsible(False)

@@ -1,4 +1,4 @@
-"""Shared read-only register snapshot and protocol policy for TCP and RTU."""
+"""从站只读快照与完整测点读取规则；按每点实际宽度检查边界。"""
 from pymodbus.pdu import ExceptionResponse
 from pymodbus.pdu.register_message import (
     ReadHoldingRegistersRequest, ReadHoldingRegistersResponse,
@@ -37,7 +37,9 @@ class ReadOnlyRegisters:
             snapshot = self.registers
             if not 1 <= count <= 125:
                 exception = 3
-            elif (count % 2 or address not in self.config.addresses
+            elif (address not in self.config.addresses
+                  or address + count not in {point.address + point.register_count
+                                              for point in self.config.enabled_points}
                   or any(i not in snapshot for i in range(address, address + count))):
                 exception = 2
             else:

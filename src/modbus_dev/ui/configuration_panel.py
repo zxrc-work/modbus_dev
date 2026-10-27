@@ -1,4 +1,4 @@
-"""Session configuration editor and local parameter applicability."""
+"""会话配置与逐点编码编辑，共用领域校验并保留无关参数草稿。"""
 from .i18n import tr, bind, make_button, group_box, add_item, add_tab, retranslate_tree
 import json
 from PySide6.QtCore import Signal, Qt
@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QComboBox, QFormLayout, QFrame, QHBoxLayout, QLine
 from ..application.session import check_capabilities
 from ..domain.config import MAX_POINTS, PointConfig, TaskConfig, point_conflicts
 from ..domain.operations import OPERATIONS
+from ..domain.numeric import numeric_type
 from ..domain.usage import ParameterUsage
 from .point_editor import PointEditor
 from .theme import METRICS
@@ -148,11 +149,11 @@ class ConfigurationPanel(QFrame):
                                                       ("schedule_tolerance_percent", tr('Scheduling tolerance (%)'), None)])
         bind(self.fields['readback_every'], 'setToolTip', tr('Read back every N cycles; 0 disables readback.'))
         bind(self.fields['schedule_tolerance_percent'], 'setToolTip', SCHEDULE_LATE_HELP)
-        bind(self.fields['master_operation'], 'setToolTip', tr('Reads send no writes. FC06 writes one 16-bit register at a time; one float32 requires two transactions.'))
+        bind(self.fields['master_operation'], 'setToolTip', tr('Reads send no writes. FC06 writes one register per transaction; 32-bit points are split for raw-register diagnostics, not atomic updates. FC16 writes complete groups.'))
         connection.addStretch()
 
         data = page(tr('Data'))
-        group(data, tr('Shared encoding'), [("byte_order", tr('Byte order'), ["B1234", "B4321", "B2143", "B3412"])])
+        group(data, tr('Default 32-bit encoding'), [("byte_order", tr('Default byte order'), list(numeric_type("float32").orders))])
         self.data_note = label("", "caption")
         self.data_note.setWordWrap(True)
         data.addWidget(self.data_note)
@@ -323,10 +324,12 @@ class ConfigurationPanel(QFrame):
         self.changed.emit()
 
     def update_points_summary(self):
-        # 即时检查只读取启用和地址，避免用户正在输入波形参数时弹出错误。
-        points = [PointConfig(enabled=editor.enabled.isChecked(), address=editor.fields["address"].value())
+        # 即时检查使用实际类型宽度，不解析用户尚未输入完毕的数值草稿。
+        points = [PointConfig(enabled=editor.enabled.isChecked(), address=editor.fields["address"].value(),
+                              data_type=editor.current_data_type())
                   for editor in self.point_editors]
         conflicts = point_conflicts(points)
+        overflow = any(point.enabled and point.address + point.register_count > 65536 for point in points)
         overlapping = {index for pair in conflicts for index in pair}
         for i, editor in enumerate(self.point_editors):
             editor.set_conflict(i in overlapping)
@@ -335,6 +338,8 @@ class ConfigurationPanel(QFrame):
             text = "；".join(tr('Point {p0} overlaps point {p1}').format(p0=a + 1, p1=b + 1) for a, b in conflicts)
         else:
             text = tr('{p0} / {p1} points enabled').format(p0=count, p1=MAX_POINTS) if count else tr('Enable at least one point')
+        if overflow:
+            text += tr(' · Address range exceeds 65535')
         bind(self.points_status, 'setText', text)
-        self.points_status.setProperty("tone", "error" if conflicts or not count else "idle")
+        self.points_status.setProperty("tone", "error" if conflicts or overflow or not count else "idle")
         refresh_style(self.points_status)

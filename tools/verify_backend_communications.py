@@ -149,7 +149,8 @@ class SerialWire:
             part = self.peer.read(max(1, min(256, self.peer.in_waiting)))
             data.extend(part)
             if len(data) >= 3 and not silence:
-                size = 5 if data[1] & 0x80 else 5 + data[2]
+                # 写入 ACK 的长度固定为八字节，不能将地址高字节误当成数据字节数。
+                size = 5 if data[1] & 0x80 else 8 if data[1] in (6, 16) else 5 + data[2]
                 if len(data) >= size:
                     break
         at = time.perf_counter()

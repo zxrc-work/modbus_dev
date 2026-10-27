@@ -26,7 +26,7 @@ class PointTests(unittest.TestCase):
     def test_legacy_config_expands_shared_source_and_saves_only_new_schema(self):
         config = TaskConfig.from_mapping(dict(schema_version=1, mode="tcp-slave", addresses=[6, 0],
                                              source=dict(kind="sine", value=10, amplitude=2, frequency_hz=1)))
-        self.assertEqual(config.schema_version, 2)
+        self.assertEqual(config.schema_version, 3)
         self.assertEqual(len(config.points), MAX_POINTS)
         self.assertEqual(config.addresses, (6, 0))
         self.assertEqual(config.points[0].source, config.points[1].source)
@@ -84,7 +84,7 @@ class PointTests(unittest.TestCase):
     def test_schema_mixing_and_unsupported_versions_are_rejected(self):
         cases = [dict(schema_version=1, points=[{}]), dict(schema_version=2, addresses=[0]),
                  dict(schema_version=2, source={}), dict(points=[{}], source={}),
-                 dict(schema_version=3), dict(period_ms="100"), dict(period_ms=0)]
+                 dict(schema_version=4), dict(period_ms="100"), dict(period_ms=0)]
         for data in cases:
             with self.subTest(data=data), self.assertRaises(ConfigurationError):
                 TaskConfig.from_mapping(dict(mode="tcp-slave", **data))

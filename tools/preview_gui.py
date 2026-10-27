@@ -15,6 +15,7 @@ def main():
     parser.add_argument("--width", type=int)
     parser.add_argument("--height", type=int)
     parser.add_argument("--language", choices=("system", "zh_CN", "en"), default="zh_CN")
+    parser.add_argument("--config", type=Path, help="preview point types and byte orders from a saved configuration")
     args = parser.parse_args()
     if args.native:
         if sys.platform != "win32":
@@ -29,7 +30,7 @@ def main():
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QFontDatabase
-    from modbus_dev.domain.config import TaskConfig
+    from modbus_dev.domain.config import TaskConfig, load_config
     from modbus_dev.gui import Workbench, create_application
     from modbus_dev.gui_theme import ui_font
 
@@ -63,13 +64,16 @@ def main():
         user32.AreDpiAwarenessContextsEqual.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
         report["per_monitor_v2"] = bool(user32.AreDpiAwarenessContextsEqual(
             user32.GetWindowDpiAwarenessContext(int(window.winId())), ctypes.c_void_p(-4)))
+    encoding = ({key: value for key, value in load_config(args.config).to_mapping().items()
+                 if key in ("points", "byte_order")} if args.config else dict(points=[
+                     dict(address=0, name="温度", source=dict(value=12.5)),
+                     dict(address=2, name="压力", source=dict(kind="sine", value=10, amplitude=2, frequency_hz=.5)),
+                     dict(address=4, name="流量", source=dict(value=-3.5)),
+                     dict(enabled=False, address=6, name="备用")]))
     for mode in ("tcp-slave", "rtu-slave", "rtu-master"):
         window.apply_config(TaskConfig.from_mapping(dict(
             mode=mode, serial=dict(port="COM11"), duration_s=0,
-            points=[dict(address=0, name="温度", source=dict(value=12.5)),
-                    dict(address=2, name="压力", source=dict(kind="sine", value=10, amplitude=2, frequency_hz=.5)),
-                    dict(address=4, name="流量", source=dict(value=-3.5)),
-                    dict(enabled=False, address=6, name="备用")])))
+            **encoding)))
         for tab in range(window.config_tabs.count()):
             window.config_tabs.setCurrentIndex(tab)
             app.processEvents()

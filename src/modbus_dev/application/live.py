@@ -1,19 +1,18 @@
 """最新数值与有界通信点缓冲，不记录发送计划或源计划值。"""
 from collections import deque
 from itertools import islice
-import math
-import struct
 import threading
 
-from ..domain.mapping import ORDERS
+from ..domain.numeric import decode_value
 from ..domain.live_policy import CURVE_WINDOW_S, LIVE_BATCH_MAX_SAMPLES, LIVE_SAMPLE_CAPACITY
 
 
 def decode_float(words, order):
-    raw = struct.pack(">HH", *words)
-    original = bytes(raw[ORDERS[order].index(index)] for index in range(4))
-    value = struct.unpack(">f", original)[0]
-    return value if math.isfinite(value) else None
+    # 旧诊断入口委托公共解码器，不再维护独立的浮点排列逻辑。
+    try:
+        return decode_value(words, "float32", order)
+    except ValueError:
+        return None
 
 
 class LiveValues:
@@ -43,7 +42,7 @@ class LiveValues:
         stop = start + (len(words) or data.get("count", 0))
         with self.lock:
             for index, point in enumerate(self.config.points):
-                if not point.enabled or stop <= point.address or start >= point.address + 2:
+                if not point.enabled or stop <= point.address or start >= point.address + point.register_count:
                     continue
                 key = f"{data['area']}:{index}:{data['direction']}"
                 if event.code == "register_confirmation":
@@ -53,15 +52,22 @@ class LiveValues:
                         # Updating a row must not enqueue duplicate points or refresh its age.
                         row["confirmation"] = data["quality"]
                     continue
-                complete = start <= point.address and stop >= point.address + 2
-                raw = words[max(start, point.address) - start:min(stop, point.address + 2) - start]
-                value = decode_float(raw, self.config.byte_order) if complete else None
+                point_stop = point.address + point.register_count
+                complete = start <= point.address and stop >= point_stop
+                raw = words[max(start, point.address) - start:min(stop, point_stop) - start]
+                value = None
+                if complete:
+                    try:
+                        value = decode_value(raw, point.data_type, point.encoding_order(self.config.byte_order))
+                    except ValueError:
+                        pass
                 quality = data.get("quality", "received") if complete else "partial"
                 if complete and value is None:
                     quality = "nonfinite"
                 self.sequence += 1
                 self.rows[key] = dict(key=key, sample_id=self.sequence, point=index, name=point.name or f"测点 {index + 1}",
                                      area=data["area"], address=point.address, direction=data["direction"],
+                                     data_type=point.data_type, byte_order=point.encoding_order(self.config.byte_order),
                                      value=value, registers=list(raw), function=data["function"],
                                      quality=quality, confirmation=None,
                                      sampled_s=data["sampled_s"])

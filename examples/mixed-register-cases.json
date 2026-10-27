@@ -1,0 +1,8 @@
+[
+  {"name":"FC03 整块混合类型","request":"0300000006","response":"030cff85ffff0080010000004148"},
+  {"name":"FC04 整块混合类型","request":"0400000006","response":"040cff85ffff0080010000004148"},
+  {"name":"完整单寄存器点","request":"0300000001","response":"0302ff85"},
+  {"name":"三个寄存器的完整混合点","request":"0300010003","response":"0306ffff00800100"},
+  {"name":"拒绝半个32位点","request":"0300030001","response":"8302"},
+  {"name":"拒绝未绑定地址","request":"0300060001","response":"8302"}
+]

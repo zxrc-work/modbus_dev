@@ -1,0 +1,17 @@
+{
+  "schema_version": 3,
+  "mode": "rtu-master",
+  "serial": {"port":"COM11","baud":115200},
+  "unit": 1,
+  "master_operation": "write-multiple",
+  "readback_every": 1,
+  "period_ms": 100,
+  "timeout_ms": 80,
+  "duration_s": 0,
+  "points": [
+    {"name":"有符号16位","address":0,"data_type":"int16","source":{"value":-123}},
+    {"name":"无符号16位","address":1,"data_type":"uint16","source":{"value":65535}},
+    {"name":"无符号32位","address":2,"data_type":"uint32","byte_order":"B3412","source":{"value":4294967295}},
+    {"name":"浮点32位","address":4,"data_type":"float32","byte_order":"B4321","source":{"value":12.5}}
+  ]
+}

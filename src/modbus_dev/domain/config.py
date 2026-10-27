@@ -3,13 +3,14 @@ from dataclasses import asdict, dataclass, field, replace
 import json
 import math
 from pathlib import Path
-import struct
 
 from .events import ConfigurationError
 from .usage import ParameterUsage
+from .numeric import NUMERIC_TYPES, encode_value, numeric_type, resolve_order
 
 MAX_POINTS = 4
-REGISTERS_PER_POINT = 2
+# 仅供旧 float32 点表和预留槽位的默认间距使用，实际占用由每点类型决定。
+REGISTERS_PER_POINT = NUMERIC_TYPES["float32"].registers
 
 
 def fail(path, message, *, reason=None, **parameters):
@@ -20,7 +21,7 @@ def number(value, path, low, high, integer=False):
     expected = (int,) if integer else (int, float)
     if isinstance(value, bool) or not isinstance(value, expected):
         fail(path, "must be an integer" if integer else "must be a number")
-    if not math.isfinite(value) or not low <= value <= high:
+    if not low <= value <= high or not math.isfinite(value):
         fail(path, f"must be finite and in {low}..{high}", reason="numeric_range", low=low, high=high)
 
 
@@ -89,14 +90,17 @@ class SourceConfig:
         data["channels"] = channels
         return cls(**data)
 
-    def validate(self, period_ms, points=1, path="source", *, active=True):
+    def validate(self, period_ms, points=1, path="source", *, active=True, data_type="float32"):
         if not active:
             return
         choice(self.kind, path + ".kind", ("constant", "sine", "dyn"))
+        specification = numeric_type(data_type)
+        if specification.integer and self.kind != "constant":
+            fail(path + ".kind", "integer points support constant sources only", reason="integer_source")
         if self.kind in ("constant", "sine"):
-            number(self.value, path + ".value", -3.4028234e38, 3.4028234e38)
+            number(self.value, path + ".value", specification.minimum, specification.maximum)
         if self.kind == "sine":
-            number(self.amplitude, path + ".amplitude", 0, 3.4028234e38)
+            number(self.amplitude, path + ".amplitude", 0, specification.maximum)
             number(self.frequency_hz, path + ".frequency_hz", 0, 1e6)
             if not 0 < self.frequency_hz < 500 / period_ms:
                 fail(path + ".frequency_hz", "must be positive and below output Nyquist frequency")
@@ -104,9 +108,10 @@ class SourceConfig:
             amplitude = self.amplitude if self.kind == "sine" else 0
             try:
                 for value in (self.value - amplitude, self.value + amplitude):
-                    if not math.isfinite(struct.unpack(">f", struct.pack(">f", value))[0]):
-                        raise OverflowError()
-            except (OverflowError, struct.error):
+                    encode_value(value, data_type)
+            except ValueError:
+                if specification.integer:
+                    fail(path + ".value", "integer points require integral values", reason="integer_value")
                 fail(path, "signal exceeds finite float32 range")
         if self.kind == "dyn":
             text(self.path, path + ".path")
@@ -121,11 +126,20 @@ class SourceConfig:
 
 @dataclass(frozen=True)
 class PointConfig:
-    """单个测点独立保存地址和数据源；禁用点不参与通信和地址冲突检查。"""
+    """逐点保存类型、排列、地址和数据源；禁用点不占用通信地址。"""
     enabled: bool = True
     name: str = ""
     address: int = 0
     source: SourceConfig = field(default_factory=SourceConfig)
+    data_type: str = "float32"
+    byte_order: str | None = None
+
+    @property
+    def register_count(self):
+        return numeric_type(self.data_type).registers
+
+    def encoding_order(self, default_order="B1234"):
+        return resolve_order(self.data_type, self.byte_order, default_order)
 
     @classmethod
     def from_mapping(cls, data, path, *, source_used=True):
@@ -134,15 +148,19 @@ class PointConfig:
                                                  active=source_used and data.get("enabled", True) is True)
         return cls(**data)
 
-    def validate(self, period_ms, path, *, source_used=True):
+    def validate(self, period_ms, path, *, source_used=True, default_order="B1234"):
         if not isinstance(self.enabled, bool):
             fail(path + ".enabled", "must be a boolean")
         if not self.enabled:
             return
         if not isinstance(self.name, str):
             fail(path + ".name", "must be a string")
-        number(self.address, path + ".address", 0, 65536 - REGISTERS_PER_POINT, True)
-        self.source.validate(period_ms, path=path + ".source", active=source_used)
+        choice(self.data_type, path + ".data_type", tuple(NUMERIC_TYPES))
+        if self.byte_order is not None:
+            choice(self.byte_order, path + ".byte_order", numeric_type(self.data_type).orders)
+        self.encoding_order(default_order)
+        number(self.address, path + ".address", 0, 65536 - self.register_count, True)
+        self.source.validate(period_ms, path=path + ".source", active=source_used, data_type=self.data_type)
 
 
 def default_point(index):
@@ -153,7 +171,8 @@ def point_conflicts(points):
     """返回启用点中重叠的槽位编号，供配置校验和界面即时提示共用。"""
     active = [(i, point) for i, point in enumerate(points) if point.enabled]
     return [(i, j) for n, (i, first) in enumerate(active) for j, second in active[n + 1:]
-            if abs(first.address - second.address) < REGISTERS_PER_POINT]
+            if first.address < second.address + second.register_count
+            and second.address < first.address + first.register_count]
 
 
 @dataclass(frozen=True)
@@ -167,7 +186,7 @@ class LoggingConfig:
 
 @dataclass(frozen=True)
 class TaskConfig:
-    schema_version: int = 2
+    schema_version: int = 3
     mode: str = "rtu-master"
     policy: str = "continuous"
     unit: int = 1
@@ -196,12 +215,12 @@ class TaskConfig:
         if data.get("access_mode") == "read-only":
             data.setdefault("master_operation", "read-input")
         usage = ParameterUsage(data.get("mode", "rtu-master"), data.get("master_operation", "write-multiple"))
-        version = data.get("schema_version", 2 if "points" in data else 1)
-        number(version, "schema_version", 1, 2, True)
+        version = data.get("schema_version", 3 if "points" in data else 1)
+        number(version, "schema_version", 1, 3, True)
         number(data.get("period_ms", 100), "period_ms", 1, 60000, True)
         if version == 1:
             if "points" in data:
-                fail("points", "independent points require schema_version=2")
+                fail("points", "independent points require schema_version=2 or 3")
             addresses = data.pop("addresses", [0])
             if not isinstance(addresses, (list, tuple)) or not 1 <= len(addresses) <= MAX_POINTS:
                 fail("addresses", f"provide 1..{MAX_POINTS} float32 point addresses", reason="address_count", maximum=MAX_POINTS)
@@ -215,14 +234,14 @@ class TaskConfig:
                 points.append(PointConfig(address=address, source=point_source))
         else:
             if "addresses" in data or "source" in data:
-                fail("config", "schema_version=2 uses points instead of addresses/source")
+                fail("config", "schema_version>=2 uses points instead of addresses/source")
             raw_points = data.pop("points", [asdict(default_point(0))])
             if not isinstance(raw_points, (list, tuple)) or not 1 <= len(raw_points) <= MAX_POINTS:
                 fail("points", f"provide 1..{MAX_POINTS} point configurations", reason="point_count", maximum=MAX_POINTS)
             points = [PointConfig.from_mapping(point, f"points[{i}]", source_used=usage.source)
                       for i, point in enumerate(raw_points)]
         points.extend(default_point(i) for i in range(len(points), MAX_POINTS))
-        data["points"], data["schema_version"] = tuple(points), 2
+        data["points"], data["schema_version"] = tuple(points), 3
         serial = section(data.pop("serial", {}), "serial", SerialConfig.__dataclass_fields__)
         logging = section(data.pop("logging", {}), "logging", LoggingConfig.__dataclass_fields__)
         result = cls(**data, serial=SerialConfig(**serial), logging=LoggingConfig(**logging))
@@ -230,7 +249,7 @@ class TaskConfig:
         return result
 
     def validate(self):
-        number(self.schema_version, "schema_version", 2, 2, True)
+        number(self.schema_version, "schema_version", 3, 3, True)
         choice(self.mode, "mode", ("rtu-master", "rtu-slave", "tcp-slave"))
         choice(self.policy, "policy", ("continuous", "strict"))
         usage = self.usage
@@ -251,11 +270,11 @@ class TaskConfig:
             number(self.readback_every, "readback_every", 0, 1000000, True)
         if usage.readback:
             number(self.read_function, "read_function", 3, 3, True)
-        choice(self.byte_order, "byte_order", ("B1234", "B4321", "B2143", "B3412"))
+        choice(self.byte_order, "byte_order", numeric_type("float32").orders)
         if not 1 <= len(self.points) <= MAX_POINTS:
             fail("points", f"provide 1..{MAX_POINTS} point configurations", reason="point_count", maximum=MAX_POINTS)
         for i, point in enumerate(self.points):
-            point.validate(self.period_ms, f"points[{i}]", source_used=usage.source)
+            point.validate(self.period_ms, f"points[{i}]", source_used=usage.source, default_order=self.byte_order)
         if not self.enabled_points:
             fail("points", "请至少启用一个测点", reason="no_enabled_points")
         conflicts = point_conflicts(self.points)

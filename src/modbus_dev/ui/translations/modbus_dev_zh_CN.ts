@@ -1066,5 +1066,61 @@ The UI retains the latest 2000 lines; complete logs are saved to the results dir
       <source>Configuration saved automatically</source>
       <translation>配置已自动保存</translation>
     </message>
+    <message>
+      <source>Data type</source>
+      <translation>数值类型</translation>
+    </message>
+    <message>
+      <source>Default 32-bit encoding</source>
+      <translation>32 位默认编码</translation>
+    </message>
+    <message>
+      <source>Default byte order</source>
+      <translation>默认字节序</translation>
+    </message>
+    <message>
+      <source>Default for this type</source>
+      <translation>使用类型默认排列</translation>
+    </message>
+    <message>
+      <source>Default: AB for 16-bit points; shared byte order for 32-bit points. Disabled orders do not apply to this type.</source>
+      <translation>默认排列：16 位使用 AB，32 位继承公共字节序。灰色排列不适用于当前类型。</translation>
+    </message>
+    <message>
+      <source>Enter an integral value; integer points do not round fractional values.</source>
+      <translation>请输入整数值；整数测点不会对小数自动取整。</translation>
+    </message>
+    <message>
+      <source>Independent points require schema version 2 or 3.</source>
+      <translation>独立测点需要配置版本 2 或 3。</translation>
+    </message>
+    <message>
+      <source>Integer points support constant sources only.</source>
+      <translation>整数测点仅支持常量源。</translation>
+    </message>
+    <message>
+      <source>Integer points support constant sources only. Fractional or out-of-range values are rejected without rounding.</source>
+      <translation>整数测点仅支持常量源；小数或越界值直接报错，不自动取整。</translation>
+    </message>
+    <message>
+      <source>Reads send no writes. FC06 writes one register per transaction; 32-bit points are split for raw-register diagnostics, not atomic updates. FC16 writes complete groups.</source>
+      <translation>读取不会发送写入。FC06 每笔写一个寄存器；32 位测点拆笔仅用于原始寄存器诊断，不保证原子性。FC16 写入完整分组。</translation>
+    </message>
+    <message>
+      <source>Registers {p0}–{p1} · {data_type}</source>
+      <translation>寄存器 {p0}～{p1} · {data_type}</translation>
+    </message>
+    <message>
+      <source>Schema versions 2 and 3 use points instead of addresses/source.</source>
+      <translation>配置版本 2 和 3 使用 points，不再使用 addresses/source。</translation>
+    </message>
+    <message>
+      <source>Zero-based register address; the selected data type determines register width.</source>
+      <translation>零基寄存器地址；占用宽度由所选数值类型决定。</translation>
+    </message>
+    <message>
+      <source> · Address range exceeds 65535</source>
+      <translation> · 寄存器范围超出 65535</translation>
+    </message>
   </context>
 </TS>

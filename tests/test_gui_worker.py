@@ -313,7 +313,7 @@ class GuiTests(unittest.TestCase):
         self.window.stop()
         self.wait_for(lambda: self.window.temporary is None)
         snapshot = json.loads((self.window.last_output / "config.json").read_text(encoding="utf-8"))
-        self.assertEqual(snapshot["schema_version"], 2)
+        self.assertEqual(snapshot["schema_version"], 3)
         self.assertEqual([p["source"]["value"] for p in snapshot["points"][:2]], [-3.5, 12.5])
 
     def test_address_spinbox_and_disabled_point_parameters(self):
@@ -329,8 +329,10 @@ class GuiTests(unittest.TestCase):
         self.assertEqual(address.value(), 0)
         address.setValue(65534)
         QTest.keyClick(address, Qt.Key_Up)
-        self.assertEqual(address.value(), 65534)
-        self.assertIn("65534～65535", editor.range_label.text())
+        self.assertEqual(address.value(), 65535)
+        self.assertIn("65535～65536", editor.range_label.text())
+        self.assertEqual(editor.range_label.property("tone"), "error")
+        address.setValue(65534)
         editor.fields["source.value"].setText("23.75")
         editor.enabled.setChecked(False)
         editor.enabled.setChecked(True)

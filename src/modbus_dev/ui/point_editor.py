@@ -8,7 +8,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from ..domain.config import PointConfig, REGISTERS_PER_POINT
+from ..domain.config import PointConfig
+from ..domain.numeric import NUMERIC_TYPES, ORDERS, numeric_type, parse_integer
 from .theme import METRICS
 from .widgets import CheckBox, ComboBox, SpinBox, label, refresh_style
 
@@ -43,15 +44,23 @@ class PointEditor(QGroupBox):
         self.form.setHorizontalSpacing(METRICS.section_spacing)
         self.form.setVerticalSpacing(METRICS.spacing)
         self.form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-        self.fields = {"name": QLineEdit(), "address": SpinBox(), "source.kind": ComboBox(),
+        self.fields = {"name": QLineEdit(), "address": SpinBox(),
+                       "data_type": ComboBox(), "byte_order": ComboBox(), "source.kind": ComboBox(),
                        "source.value": QLineEdit(), "source.amplitude": QLineEdit(),
                        "source.frequency_hz": QLineEdit()}
         bind(self.fields['name'], 'setPlaceholderText', tr('Optional, e.g. temperature or pressure'))
-        self.fields["address"].setRange(0, 65536 - REGISTERS_PER_POINT)
-        bind(self.fields['address'], 'setToolTip', tr('Zero-based register address; each float32 point occupies two registers.'))
+        self.fields["address"].setRange(0, 65535)
+        bind(self.fields['address'], 'setToolTip', tr('Zero-based register address; the selected data type determines register width.'))
+        for data_type in NUMERIC_TYPES:
+            self.fields["data_type"].addItem(data_type, data_type)
+        add_item(self.fields["byte_order"], tr('Default for this type'), None)
+        for order in ORDERS:
+            self.fields["byte_order"].addItem(order, order)
+        bind(self.fields['byte_order'], 'setToolTip', tr('Default: AB for 16-bit points; shared byte order for 32-bit points. Disabled orders do not apply to this type.'))
         add_item(self.fields['source.kind'], tr('Constant'), 'constant')
         add_item(self.fields['source.kind'], tr('Sine wave'), 'sine')
-        for key, caption in (("name", tr('Name')), ("address", tr('Start address')), ("source.kind", tr('Data source')),
+        for key, caption in (("name", tr('Name')), ("address", tr('Start address')),
+                             ("data_type", tr('Data type')), ("byte_order", tr('Byte order')), ("source.kind", tr('Data source')),
                              ("source.value", tr('Value')), ("source.amplitude", tr('Amplitude')),
                              ("source.frequency_hz", tr('Frequency (Hz)'))):
             widget = self.fields[key]
@@ -62,6 +71,8 @@ class PointEditor(QGroupBox):
         self.enabled.toggled.connect(self._changed)
         self.fields["address"].valueChanged.connect(self._changed)
         self.fields["source.kind"].currentIndexChanged.connect(self._changed)
+        self.fields["data_type"].currentIndexChanged.connect(self._changed)
+        self.fields["byte_order"].currentIndexChanged.connect(self._changed)
         for key in ("name", "source.value", "source.amplitude", "source.frequency_hz"):
             self.fields[key].textChanged.connect(self._changed)
 
@@ -69,12 +80,21 @@ class PointEditor(QGroupBox):
         if self._loading:
             return
         active = self.enabled.isChecked()
+        specification = numeric_type(self.current_data_type())
+        orders = self.fields["byte_order"]
+        for index in range(orders.count()):
+            orders.model().item(index).setEnabled(orders.itemData(index) is None or orders.itemData(index) in specification.orders)
+        # 保留已有草稿，但不允许为整数新选正弦源；冲突草稿由公共配置校验明确报错。
+        source_kind = self.fields["source.kind"]
+        source_kind.model().item(source_kind.findData("sine")).setEnabled(not specification.integer)
         self.body.setVisible(active)
         sine = self.fields["source.kind"].currentData() == "sine"
         for key in ("source.kind", "source.value"):
             self.fields[key].setEnabled(active and self._source_used)
             self.form.labelForField(self.fields[key]).setEnabled(active and self._source_used)
             bind(self.fields[key], 'setToolTip', self._source_tip if self._source_used else tr('Read-only operations generate no local data; values are supplied by the remote slave.'))
+        if self._source_used and specification.integer:
+            bind(source_kind, 'setToolTip', tr('Integer points support constant sources only. Fractional or out-of-range values are rejected without rounding.'))
         bind(self.form.labelForField(self.fields['source.value']), 'setText', tr('Offset') if sine else tr('Value'))
         for key in ("source.amplitude", "source.frequency_hz"):
             self.fields[key].setVisible(sine)
@@ -103,10 +123,13 @@ class PointEditor(QGroupBox):
 
     def set_conflict(self, conflict):
         address = self.fields["address"].value()
-        text = (tr('Registers {p0}–{p1} · float32').format(p0=address, p1=address + REGISTERS_PER_POINT - 1)
+        data_type = self.current_data_type()
+        overflow = self.enabled.isChecked() and address + numeric_type(data_type).registers > 65536
+        text = (tr('Registers {p0}–{p1} · {data_type}').format(p0=address, p1=address + numeric_type(data_type).registers - 1, data_type=data_type)
                 if self.enabled.isChecked() else tr('Disabled · No registers occupied'))
-        bind(self.range_label, 'setText', text + (tr(' · Address overlap') if conflict else ''))
-        self.range_label.setProperty("tone", "error" if conflict else "idle")
+        bind(self.range_label, 'setText', text + (tr(' · Address overlap') if conflict else '')
+             + (tr(' · Address range exceeds 65535') if overflow else ''))
+        self.range_label.setProperty("tone", "error" if conflict or overflow else "idle")
         refresh_style(self.range_label)
 
     def apply_point(self, point):
@@ -117,6 +140,8 @@ class PointEditor(QGroupBox):
             bind(self.fields['name'], 'setText', str(point.name))
             valid_address = isinstance(point.address, int) and not isinstance(point.address, bool)
             self.fields["address"].setValue(point.address if valid_address else 0)
+            self.fields["data_type"].setCurrentIndex(self.fields["data_type"].findData(point.data_type))
+            self.fields["byte_order"].setCurrentIndex(self.fields["byte_order"].findData(point.byte_order))
             kind = self.fields["source.kind"]
             bind(kind, 'setPlaceholderText', tr('This data source is not available'))
             kind.setCurrentIndex(kind.findData(point.source.kind))
@@ -137,8 +162,11 @@ class PointEditor(QGroupBox):
         data = asdict(self._point)
         data.update(enabled=active, name=self.fields["name"].text().strip(),
                     address=self.fields["address"].value())
+        for key in ("data_type", "byte_order"):
+            if self.fields[key].currentIndex() >= 0:
+                data[key] = self.fields[key].currentData()
         if not active and not (isinstance(self._point.address, int) and not isinstance(self._point.address, bool)
-                               and 0 <= self._point.address <= 65536 - REGISTERS_PER_POINT):
+                               and 0 <= self._point.address <= 65535):
             data["address"] = self._point.address
         data["source"]["kind"] = kind
         for key, caption in (("value", tr('Value / offset')), ("amplitude", tr('Amplitude')), ("frequency_hz", tr('Frequency (Hz)'))):
@@ -149,7 +177,12 @@ class PointEditor(QGroupBox):
                     data["source"][key] = draft
                 continue
             try:
-                data["source"][key] = float(draft)
+                data["source"][key] = (parse_integer(draft, data["data_type"])
+                                       if key == "value" and numeric_type(data["data_type"]).integer else float(draft))
             except ValueError:
                 raise ValueError(tr('Point {p0} · {p1}: enter a valid number').format(p0=self.index + 1, p1=caption)) from None
         return data
+
+    def current_data_type(self):
+        """无效的禁用草稿仅按默认宽度预览，不修改其保存内容。"""
+        return self.fields["data_type"].currentData() or "float32"

@@ -1,27 +1,34 @@
-"""Float point grouping extracted from the existing RTU simulator.
-
-Uses the standard struct codec, not a second Modbus implementation.
-"""
-import math
-import struct
-
+"""按测点实际宽度映射、编码和分组，保持地址与配置顺序中的数值绑定。"""
+from .config import PointConfig
+from .numeric import ORDERS, encode_value, resolve_order
 from .transactions import Request
 
-ORDERS = {"B1234": (0, 1, 2, 3), "B4321": (3, 2, 1, 0),
-          "B2143": (1, 0, 3, 2), "B3412": (2, 3, 0, 1)}
+
+def point_ranges(points):
+    """相邻完整测点合并为读取区间，不跨未配置地址。"""
+    groups = []
+    for point in sorted(points, key=lambda point: point.address):
+        if groups and groups[-1][0] + groups[-1][1] == point.address:
+            groups[-1][1] += point.register_count
+        else:
+            groups.append([point.address, point.register_count])
+    return groups
+
+
+def point_write_requests(points, values, default_order="B1234"):
+    if len(points) != len(values):
+        raise ValueError("Each point requires one source value")
+    groups = []
+    for point, value in sorted(zip(points, values), key=lambda pair: pair[0].address):
+        order = resolve_order(point.data_type, point.byte_order, default_order)
+        words = encode_value(value, point.data_type, order)
+        if groups and groups[-1][0] + len(groups[-1][1]) == point.address:
+            groups[-1][1].extend(words)
+        else:
+            groups.append((point.address, list(words)))
+    return [Request(16, address, len(words), tuple(words)) for address, words in groups]
 
 
 def write_requests(addresses, values, order):
-    if len(addresses) != len(values):
-        raise ValueError("Each address requires one source value")
-    groups = []
-    for address, value in sorted(zip(addresses, values)):
-        if not math.isfinite(value):
-            raise ValueError("Nonfinite source value")
-        raw = struct.pack(">f", value)
-        words = struct.unpack(">HH", bytes(raw[i] for i in ORDERS[order]))
-        if groups and groups[-1][0] + len(groups[-1][1]) == address:
-            groups[-1][1].extend(words)
-        else:
-            groups.append((address, list(words)))
-    return [Request(16, address, len(words), tuple(words)) for address, words in groups]
+    """保留旧 float32 调用入口，实际编码仍只走公共类型模块。"""
+    return point_write_requests(tuple(PointConfig(address=address) for address in addresses), values, order)

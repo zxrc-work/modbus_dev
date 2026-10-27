@@ -14,7 +14,7 @@ import unittest
 
 @unittest.skipUnless(os.name == "posix", "PTY 联调只用于 POSIX；Windows 需另验真实 COM")
 class DuplexTests(unittest.TestCase):
-    def exercise(self, operation, reverse):
+    def exercise(self, operation, reverse, *, points=None):
         import tty
         fds = [os.openpty(), os.openpty()]
         for _, slave_fd in fds:
@@ -51,6 +51,8 @@ class DuplexTests(unittest.TestCase):
                               serial=dict(port=ports[1 - int(reverse)], baud=115200),
                               readback_every=int(operation.startswith("write")),
                               points=[dict(address=0, source=dict(value=1.25))])
+                if points is not None:
+                    slave["points"] = master["points"] = points
                 for name, config in (("slave", slave), ("master", master)):
                     (root / f"{name}.json").write_text(json.dumps(config))
                 process = subprocess.Popen([sys.executable, "-m", "modbus_dev", "worker", str(root / "slave.json"),
@@ -90,7 +92,12 @@ class DuplexTests(unittest.TestCase):
                 self.assertEqual(final["result"]["exit_code"], 130)
                 self.assertTrue(final["live"]["rows"])
                 values = [row["value"] for row in final["live"]["rows"] if row["value"] is not None]
-                if operation in ("read-input", "read-holding"):
+                if points is not None:
+                    for point in points:
+                        # FC06 的多寄存器点仍为部分原始数据，不应拼接成有效数值。
+                        if operation != "write-single" or point["data_type"] in ("int16", "uint16"):
+                            self.assertIn(point["source"]["value"], values)
+                elif operation in ("read-input", "read-holding"):
                     self.assertIn(12.5, values)
                 elif operation == "write-multiple":
                     self.assertIn(1.25, values)
@@ -111,3 +118,12 @@ class DuplexTests(unittest.TestCase):
         for index, operation in enumerate(("read-holding", "read-input", "write-single", "write-multiple")):
             with self.subTest(operation=operation):
                 self.exercise(operation, bool(index % 2))
+
+    def test_mixed_types_across_real_rtu_workers(self):
+        points = [dict(address=0, data_type="int16", source=dict(value=-123)),
+                  dict(address=1, data_type="uint32", byte_order="B3412", source=dict(value=4294967295)),
+                  dict(address=3, data_type="float32", byte_order="B4321", source=dict(value=12.5)),
+                  dict(address=5, data_type="uint16", byte_order="BA", source=dict(value=4660))]
+        for index, operation in enumerate(("read-input", "write-multiple", "write-single")):
+            with self.subTest(operation=operation):
+                self.exercise(operation, bool(index % 2), points=points)

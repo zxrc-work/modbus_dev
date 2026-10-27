@@ -1,4 +1,4 @@
-"""Localize structured configuration failures without changing CLI diagnostics."""
+"""配置错误的界面本地化，保留 CLI 的结构化诊断。"""
 from ..domain.events import ConfigurationError
 from .i18n import tr
 
@@ -16,8 +16,10 @@ TEMPLATES = {
     "must be positive and below output Nyquist frequency": tr("Frequency must be positive and below the output Nyquist frequency."),
     "signal exceeds finite float32 range": tr("The signal exceeds the finite float32 range."),
     "provide one unique channel per point": tr("Provide one unique channel per point."),
-    "independent points require schema_version=2": tr("Independent points require schema version 2."),
-    "schema_version=2 uses points instead of addresses/source": tr("Schema version 2 uses points instead of addresses/source."),
+    "independent points require schema_version=2 or 3": tr("Independent points require schema version 2 or 3."),
+    "schema_version>=2 uses points instead of addresses/source": tr("Schema versions 2 and 3 use points instead of addresses/source."),
+    "integer_source": tr("Integer points support constant sources only."),
+    "integer_value": tr("Enter an integral value; integer points do not round fractional values."),
     "address_count": tr("Provide 1 to {maximum} float32 point addresses."),
     "point_count": tr("Provide 1 to {maximum} point configurations."),
     "readonly_write": tr("A read-only master cannot perform writes."),
