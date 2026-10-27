@@ -10,7 +10,7 @@ import unittest
 
 from modbus_dev.application.live import LiveValues
 from modbus_dev.application.session import SessionRunner
-from modbus_dev.domain.config import TaskConfig
+from modbus_dev.domain.config import TaskConfig, load_config
 from modbus_dev.domain.events import ConfigurationError, Event
 from modbus_dev.domain.mapping import point_write_requests
 from modbus_dev.domain.numeric import NUMERIC_TYPES, decode_value, encode_value, parse_integer
@@ -110,6 +110,42 @@ class NumericCodecTests(unittest.TestCase):
 
 
 class NumericConfigurationTests(unittest.TestCase):
+    def test_json_integer_source_is_checked_before_float_rounding(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "config.json"
+            for data_type, raw in (("uint16", "65535.0000000000000001"),
+                                   ("uint16", "-1e-400"),
+                                   ("int16", "-32768.0000000000000001"),
+                                   ("uint32", "4294967295.00000001"),
+                                   ("int32", "123.0000000000000001")):
+                with self.subTest(data_type=data_type, raw=raw):
+                    path.write_text('{"mode":"tcp-slave","points":[{"data_type":"' + data_type
+                                    + '","source":{"value":' + raw + '}}]}', encoding="utf-8")
+                    with self.assertRaises(ConfigurationError) as failure:
+                        load_config(path)
+                    self.assertEqual(failure.exception.path, "points[0].source.value")
+            for raw, expected in (("65535", 65535), ("65535.0", 65535), ("6.5535e4", 65535), ("0e-400", 0)):
+                with self.subTest(raw=raw):
+                    path.write_text('{"mode":"tcp-slave","points":[{"data_type":"uint16","source":{"value":'
+                                    + raw + '}}]}', encoding="utf-8")
+                    settings = load_config(path)
+                    self.assertEqual(settings.points[0].source.value, expected)
+                    json.dumps(settings.to_mapping())
+
+    def test_json_keeps_float_fields_and_inactive_integer_source_compatible(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "config.json"
+            path.write_text('{"mode":"rtu-master","access_mode":"read-only","serial":{"port":"TEST"},'
+                            '"duration_s":1.5,"points":[{"data_type":"uint16",'
+                            '"source":{"value":123.0000000000000001}}]}', encoding="utf-8")
+            settings = load_config(path)
+            self.assertEqual(settings.master_operation, "read-input")
+            self.assertEqual(settings.duration_s, 1.5)
+            json.dumps(settings.to_mapping())
+            path.write_text('{"mode":"tcp-slave","points":[{"data_type":"float32",'
+                            '"source":{"value":12.5}}]}', encoding="utf-8")
+            self.assertEqual(load_config(path).points[0].source.value, 12.5)
+
     def test_legacy_versions_keep_float_type_and_shared_order(self):
         for version, fields in ((1, dict(addresses=[0])), (2, dict(points=[dict(address=0)]))):
             old = TaskConfig.from_mapping(dict(schema_version=version, mode="tcp-slave", byte_order="B4321", **fields))

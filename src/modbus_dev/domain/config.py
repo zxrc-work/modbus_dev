@@ -1,12 +1,13 @@
 """版本化配置模型；CLI、GUI 和日志保留策略共用校验。"""
 from dataclasses import asdict, dataclass, field, replace
+from decimal import Decimal, InvalidOperation
 import json
 import math
 from pathlib import Path
 
 from .events import ConfigurationError
 from .usage import ParameterUsage
-from .numeric import NUMERIC_TYPES, encode_value, numeric_type, resolve_order
+from .numeric import NUMERIC_TYPES, encode_value, numeric_type, parse_integer, resolve_order
 
 MAX_POINTS = 4
 # 仅供旧 float32 点表和预留槽位的默认间距使用，实际占用由每点类型决定。
@@ -333,7 +334,39 @@ def load_config(path):
         return result
     try:
         raw = Path(path).read_text(encoding="utf-8-sig")
-        data = json.loads(raw, object_pairs_hook=unique_pairs)
+        data = json.loads(raw, object_pairs_hook=unique_pairs, parse_float=Decimal)
     except json.JSONDecodeError as error:
         fail("config", f"invalid JSON at line {error.lineno}, column {error.colno}", reason="invalid_json", line=error.lineno, column=error.colno)
+    except InvalidOperation:
+        fail("config", "invalid JSON number")
+
+    # 整数源值先按 JSON 中的十进制精确检查；其他字段仍按原来的 float 语义处理。
+    if isinstance(data, dict) and isinstance(data.get("points"), list):
+        operation = data.get("master_operation", "read-input" if data.get("access_mode") == "read-only" else "write-multiple")
+        usage = ParameterUsage(data.get("mode", "rtu-master"), operation)
+        for index, point in enumerate(data["points"]):
+            if not isinstance(point, dict) or point.get("enabled", True) is not True or not usage.source:
+                continue
+            data_type = point.get("data_type", "float32")
+            source = point.get("source")
+            if (not isinstance(data_type, str) or data_type not in NUMERIC_TYPES
+                    or not NUMERIC_TYPES[data_type].integer or not isinstance(source, dict)
+                    or source.get("kind", "constant") != "constant"
+                    or not isinstance(source.get("value"), Decimal)):
+                continue
+            try:
+                source["value"] = parse_integer(str(source["value"]), data_type)
+            except ValueError:
+                fail(f"points[{index}].source.value", "integer points require integral values within range", reason="integer_value")
+
+    def plain_numbers(value):
+        if isinstance(value, Decimal):
+            return float(value)
+        if isinstance(value, list):
+            return [plain_numbers(item) for item in value]
+        if isinstance(value, dict):
+            return {key: plain_numbers(item) for key, item in value.items()}
+        return value
+
+    data = plain_numbers(data)
     return TaskConfig.from_mapping(data)
