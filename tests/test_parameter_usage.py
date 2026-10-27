@@ -133,6 +133,68 @@ class ParameterGuiTests(unittest.TestCase):
         self.assertTrue(point.fields["source.value"].isEnabled())
         self.assertIn("本机", point.form.labelForField(point.fields["address"]).text())
 
+    def test_read_mode_hides_all_source_rows_and_retains_triangle_draft(self):
+        self.window.apply_config(master("write-multiple", points=[dict(data_type="int16",
+            source=dict(kind="triangle", lower=-2, upper=3))]))
+        point = self.window.point_editors[0]
+        operation = self.window.fields["master_operation"]
+        operation.setCurrentIndex(operation.findData("read-input"))
+        for key in ("source.kind", "source.value", "source.amplitude", "source.frequency_hz", "source.lower", "source.upper"):
+            self.assertTrue(point.fields[key].isHidden(), key)
+        self.assertIn("对端从站", point.source_note.text())
+        self.assertTrue(self.window.fields["readback_every"].isHidden())
+        operation.setCurrentIndex(operation.findData("write-multiple"))
+        self.assertFalse(point.fields["source.lower"].isHidden())
+        self.assertEqual(self.window.configuration().points[0].source.lower, -2)
+
+    def test_unused_unsupported_source_names_survive_draft_restore(self):
+        for kind in ("dyn", "future-source"):
+            with self.subTest(kind=kind):
+                self.window.apply_config(master(points=[dict(source=dict(kind=kind, value="unused"))]))
+                draft = self.window.editor.capture_draft()
+                self.window.editor.restore_draft(json.loads(json.dumps(draft)))
+                self.assertEqual(self.window.editor.capture_draft(), draft)
+                self.assertEqual(self.window.configuration().points[0].source.kind, kind)
+
+    def test_old_empty_source_draft_keeps_the_inactive_base_source(self):
+        self.window.apply_config(master(points=[dict(source=dict(kind="dyn", value="unused"))]))
+        draft = self.window.editor.capture_draft()
+        draft["values"]["points.0.source.kind"] = None
+        self.window.editor.restore_draft(draft)
+        self.assertEqual(self.window.configuration().points[0].source.kind, "dyn")
+
+    def test_readonly_operations_filter_writes_without_losing_original_selection(self):
+        self.window.apply_config(master("write-multiple"))
+        access, operation = (self.window.fields[key] for key in ("access_mode", "master_operation"))
+        access.setCurrentIndex(access.findData("read-only"))
+        self.assertEqual([operation.itemData(i) for i in range(operation.count()) if not operation.view().isRowHidden(i)],
+                         ["read-holding", "read-input"])
+        self.assertEqual(operation.currentIndex(), -1)
+        self.assertFalse(self.window.editor.operation_note.isHidden())
+        with self.assertRaises(ConfigurationError):
+            self.window.configuration()
+        draft = self.window.editor.capture_draft()
+        self.window.editor.restore_draft(draft)
+        self.assertEqual(self.window.editor.capture_draft(), draft)
+        access.setCurrentIndex(access.findData("read-write"))
+        self.assertEqual(operation.currentData(), "write-multiple")
+        self.window.configuration()
+
+    def test_fixed_readback_is_text_and_unsupported_rts_is_hidden(self):
+        self.window.apply_config(master("write-multiple", readback_every=1))
+        self.assertTrue(self.window.fields["read_function"].isHidden())
+        self.assertFalse(self.window.editor.readback_note.isHidden())
+        self.assertIn("FC03", self.window.editor.readback_note.text())
+        self.assertEqual(self.window.configuration().read_function, 3)
+        if not self.window.editor.parameter_usage().rts_supported:
+            self.assertTrue(self.window.editor.rts.isHidden())
+
+    def test_tcp_curve_has_no_unusable_selectors(self):
+        self.window.apply_config(TaskConfig(mode="tcp-slave"))
+        self.assertEqual(self.window.live_panel.selectors, {})
+        self.assertTrue(self.window.live_panel.plot.isHidden())
+        self.assertIn("TCP 模式暂不提供", self.window.live_panel.curve_note.text())
+
     def test_invalid_source_draft_is_ignored_for_read_and_restored_for_write(self):
         self.window.apply_config(master("write-multiple"))
         point = self.window.point_editors[0]
@@ -208,3 +270,4 @@ class ParameterGuiTests(unittest.TestCase):
                 self.window.apply_config(config)
                 actual = {key for key, checkbox in self.window.live_panel.selectors.items() if checkbox.isEnabled()}
                 self.assertEqual(actual, expected)
+                self.assertEqual(set(self.window.live_panel.selectors), expected)

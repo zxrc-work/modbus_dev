@@ -1122,5 +1122,85 @@ The UI retains the latest 2000 lines; complete logs are saved to the results dir
       <source> · Address range exceeds 65535</source>
       <translation> · 寄存器范围超出 65535</translation>
     </message>
+    <message>
+      <source> · Resolve incompatible point selections below</source>
+      <translation> · 请修正下方测点中不兼容的选项</translation>
+    </message>
+    <message>
+      <source>Fixed step 1 per data update; starts at the lower bound and reverses after reaching each bound.</source>
+      <translation>步长固定为 1，每个数据更新周期加减一次；从下限开始，到达边界后下一次反向。</translation>
+    </message>
+    <message>
+      <source>Follow global ({order})</source>
+      <translation>跟随全局（{order}）</translation>
+    </message>
+    <message>
+      <source>Integer points support constant and triangle sources only.</source>
+      <translation>整数测点仅支持常量和三角波。</translation>
+    </message>
+    <message>
+      <source>Lower bound</source>
+      <translation>下限</translation>
+    </message>
+    <message>
+      <source>Only byte orders matching this type are shown. B12 is the default for 16-bit points.</source>
+      <translation>仅显示当前类型支持的字节序，16 位测点默认为 B12。</translation>
+    </message>
+    <message>
+      <source>Point {p0}: {message}</source>
+      <translation>测点 {p0}：{message}</translation>
+    </message>
+    <message>
+      <source>Previous byte order is incompatible; select a byte order for this type.</source>
+      <translation>原字节序不适用于当前类型，请重新选择字节序。</translation>
+    </message>
+    <message>
+      <source>Previous data source is incompatible; select a data source for this type.</source>
+      <translation>原数据源不适用于当前类型，请重新选择数据源。</translation>
+    </message>
+    <message>
+      <source>Select a compatible byte order</source>
+      <translation>请选择适用的字节序</translation>
+    </message>
+    <message>
+      <source>Select a compatible data source</source>
+      <translation>请选择适用的数据源</translation>
+    </message>
+    <message>
+      <source>Select a read operation</source>
+      <translation>请选择读取操作</translation>
+    </message>
+    <message>
+      <source>TCP mode does not publish live numeric curves; inspect communication in the event log.</source>
+      <translation>TCP 模式暂不提供实时数值曲线，可在事件日志中查看通信。</translation>
+    </message>
+    <message>
+      <source>The previous write operation is unavailable in read-only mode; select FC03 or FC04.</source>
+      <translation>原写入操作不适用于只读模式，请选择 FC03 或 FC04。</translation>
+    </message>
+    <message>
+      <source>The upper bound must be greater than the lower bound.</source>
+      <translation>上限必须大于下限。</translation>
+    </message>
+    <message>
+      <source>This build supports constant, sine and triangle sources only; offline sources are not available.</source>
+      <translation>当前版本仅支持常量、正弦波和三角波，暂不支持离线数据源。</translation>
+    </message>
+    <message>
+      <source>Triangle wave</source>
+      <translation>三角波</translation>
+    </message>
+    <message>
+      <source>Upper bound</source>
+      <translation>上限</translation>
+    </message>
+    <message>
+      <source>Values come from the remote slave; no local source is used.</source>
+      <translation>数值来自对端从站，不使用本机数据源。</translation>
+    </message>
+    <message>
+      <source>Write readback uses FC03 (holding registers).</source>
+      <translation>写后读回固定使用 FC03（保持寄存器）。</translation>
+    </message>
   </context>
 </TS>

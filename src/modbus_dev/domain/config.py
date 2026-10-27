@@ -7,11 +7,13 @@ from pathlib import Path
 
 from .events import ConfigurationError
 from .usage import ParameterUsage
-from .numeric import NUMERIC_TYPES, encode_value, numeric_type, parse_integer, resolve_order
+from .numeric import NUMERIC_TYPES, canonical_order, encode_value, numeric_type, parse_integer, resolve_order
 
 MAX_POINTS = 4
 # 仅供旧 float32 点表和预留槽位的默认间距使用，实际占用由每点类型决定。
 REGISTERS_PER_POINT = NUMERIC_TYPES["float32"].registers
+SOURCE_FIELDS = {"constant": ("value",), "sine": ("value", "amplitude", "frequency_hz"),
+                 "triangle": ("lower", "upper")}
 
 
 def fail(path, message, *, reason=None, **parameters):
@@ -77,6 +79,8 @@ class SourceConfig:
     value: float = 0.0
     amplitude: float = 0.5
     frequency_hz: float = 0.8
+    lower: float = 0.0
+    upper: float = 10.0
     path: str = ""
     channels: tuple[str, ...] = ()
 
@@ -94,10 +98,21 @@ class SourceConfig:
     def validate(self, period_ms, points=1, path="source", *, active=True, data_type="float32"):
         if not active:
             return
-        choice(self.kind, path + ".kind", ("constant", "sine", "dyn"))
+        choice(self.kind, path + ".kind", ("constant", "sine", "triangle", "dyn"))
         specification = numeric_type(data_type)
-        if specification.integer and self.kind != "constant":
-            fail(path + ".kind", "integer points support constant sources only", reason="integer_source")
+        if specification.integer and self.kind not in ("constant", "triangle"):
+            fail(path + ".kind", "integer points support constant and triangle sources only", reason="integer_source")
+        if self.kind == "triangle":
+            # 固定步长为 1，配置只接受上下限；整数边界不能通过浮点舍入变成合法整数。
+            for key in ("lower", "upper"):
+                value = getattr(self, key)
+                number(value, path + "." + key, specification.minimum, specification.maximum)
+                try:
+                    encode_value(value, data_type)
+                except ValueError:
+                    fail(path + "." + key, "integer points require integral values", reason="integer_value")
+            if self.lower >= self.upper:
+                fail(path + ".upper", "upper bound must exceed lower bound", reason="triangle_bounds")
         if self.kind in ("constant", "sine"):
             number(self.value, path + ".value", specification.minimum, specification.maximum)
         if self.kind == "sine":
@@ -134,6 +149,9 @@ class PointConfig:
     source: SourceConfig = field(default_factory=SourceConfig)
     data_type: str = "float32"
     byte_order: str | None = None
+
+    def __post_init__(self):
+        object.__setattr__(self, "byte_order", canonical_order(self.byte_order))
 
     @property
     def register_count(self):
@@ -351,13 +369,16 @@ def load_config(path):
             source = point.get("source")
             if (not isinstance(data_type, str) or data_type not in NUMERIC_TYPES
                     or not NUMERIC_TYPES[data_type].integer or not isinstance(source, dict)
-                    or source.get("kind", "constant") != "constant"
-                    or not isinstance(source.get("value"), Decimal)):
+                    or source.get("kind", "constant") not in ("constant", "triangle")):
                 continue
-            try:
-                source["value"] = parse_integer(str(source["value"]), data_type)
-            except ValueError:
-                fail(f"points[{index}].source.value", "integer points require integral values within range", reason="integer_value")
+            keys = ("lower", "upper") if source.get("kind") == "triangle" else ("value",)
+            for key in keys:
+                if not isinstance(source.get(key), Decimal):
+                    continue
+                try:
+                    source[key] = parse_integer(str(source[key]), data_type)
+                except ValueError:
+                    fail(f"points[{index}].source.{key}", "integer points require integral values within range", reason="integer_value")
 
     def plain_numbers(value):
         if isinstance(value, Decimal):

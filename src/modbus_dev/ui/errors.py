@@ -18,7 +18,8 @@ TEMPLATES = {
     "provide one unique channel per point": tr("Provide one unique channel per point."),
     "independent points require schema_version=2 or 3": tr("Independent points require schema version 2 or 3."),
     "schema_version>=2 uses points instead of addresses/source": tr("Schema versions 2 and 3 use points instead of addresses/source."),
-    "integer_source": tr("Integer points support constant sources only."),
+    "integer_source": tr("Integer points support constant and triangle sources only."),
+    "triangle_bounds": tr("The upper bound must be greater than the lower bound."),
     "integer_value": tr("Enter an integral value; integer points do not round fractional values."),
     "address_count": tr("Provide 1 to {maximum} float32 point addresses."),
     "point_count": tr("Provide 1 to {maximum} point configurations."),
@@ -45,6 +46,6 @@ def format_error(error):
         if source is not None:
             return tr("{field}: {message}").format(
                 field=FIELD_NAMES.get(error.path, error.path), message=source.format(**error.parameters))
-    if str(error) == "This build runs constant/sine sources only; offline sources are deferred until after GUI":
-        return tr("This build supports constant and sine sources only; offline sources are not available.")
+    if str(error) == "This build runs constant/sine/triangle sources only; offline sources are deferred until after GUI":
+        return tr("This build supports constant, sine and triangle sources only; offline sources are not available.")
     return str(error)

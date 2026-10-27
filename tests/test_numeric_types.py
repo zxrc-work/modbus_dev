@@ -46,6 +46,14 @@ MIXED_VALUES = (305419896, -123, 12.5, 4660)
 
 
 class NumericCodecTests(unittest.TestCase):
+    def test_legacy_16_bit_aliases_remain_compatible_and_export_canonical_names(self):
+        for old, new, words in (("AB", "B12", (0x1234,)), ("BA", "B21", (0x3412,))):
+            with self.subTest(old=old):
+                self.assertEqual(encode_value(0x1234, "uint16", old), words)
+                self.assertEqual(decode_value(words, "uint16", old), 0x1234)
+                settings = config([dict(data_type="uint16", byte_order=old)])
+                self.assertEqual(settings.to_mapping()["points"][0]["byte_order"], new)
+
     def test_encode_against_independent_fixed_vectors(self):
         for vector in VECTORS:
             with self.subTest(vector=vector):
@@ -159,7 +167,7 @@ class NumericConfigurationTests(unittest.TestCase):
                            dict(address=1, data_type="float32"),
                            dict(address=3, data_type="int32", byte_order="B2143")], byte_order="B4321")
         self.assertEqual([p.encoding_order(settings.byte_order) for p in settings.enabled_points],
-                         ["AB", "B4321", "B2143"])
+                         ["B12", "B4321", "B2143"])
         self.assertEqual(settings, TaskConfig.from_mapping(settings.to_mapping()))
 
     def test_width_drives_boundary_overlap_and_disabled_point_checks(self):

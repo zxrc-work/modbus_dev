@@ -7,10 +7,17 @@ import struct
 
 # 排列针对测点的有效载荷；Modbus 寄存器在线上仍按高字节在前传输。
 ORDERS = {
-    "AB": (0, 1), "BA": (1, 0),
+    "B12": (0, 1), "B21": (1, 0),
     "B1234": (0, 1, 2, 3), "B4321": (3, 2, 1, 0),
     "B2143": (1, 0, 3, 2), "B3412": (2, 3, 0, 1),
 }
+
+# 旧配置和外部调用继续可用，新的排列列表只公开统一的数字命名。
+ORDER_ALIASES = {"AB": "B12", "BA": "B21"}
+
+
+def canonical_order(order):
+    return ORDER_ALIASES.get(order, order) if isinstance(order, str) else order
 
 
 @dataclass(frozen=True)
@@ -44,7 +51,8 @@ def numeric_type(data_type):
 def resolve_order(data_type, order=None, default_order="B1234"):
     specification = numeric_type(data_type)
     if order is None:
-        order = "AB" if specification.registers == 1 else default_order
+        order = "B12" if specification.registers == 1 else default_order
+    order = canonical_order(order)
     if order not in specification.orders:
         raise ValueError(f"Unsupported byte order {order!r} for {data_type}")
     return order

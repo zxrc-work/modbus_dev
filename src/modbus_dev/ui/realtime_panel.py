@@ -164,7 +164,9 @@ class RealtimePanel(QWidget):
         self.update_curve_note()
 
     def update_curve_note(self):
-        text = tr('TX solid: submitted to driver · RX dashed: decoded values · Actual communication samples, redrawn at {p0} Hz').format(p0=CURVE_REFRESH_HZ)
+        text = (tr('TCP mode does not publish live numeric curves; inspect communication in the event log.')
+                if self.config and self.config.mode == "tcp-slave" else
+                tr('TX solid: submitted to driver · RX dashed: decoded values · Actual communication samples, redrawn at {p0} Hz').format(p0=CURVE_REFRESH_HZ))
         if self.history.dropped:
             text += tr(' · Buffer dropped {p0} records').format(p0=self.history.dropped)
         bind(self.curve_note, 'setText', text)
@@ -176,6 +178,7 @@ class RealtimePanel(QWidget):
         self.correlation_note.hide()
         self.history.clear()
         self.update_curve_note()
+        self.plot.setVisible(config.mode != "tcp-slave")
         self.table.setRowCount(0)
         for checkbox in self.selectors.values():
             self.legend.removeWidget(checkbox)
@@ -189,21 +192,20 @@ class RealtimePanel(QWidget):
             for area in areas:
                 for direction in ("tx", "rx"):
                     key = f"{area}:{index}:{direction}"
-                    checkbox = CheckBox(tr("{name} · {area} · {direction}").format(
-                        name=point.name or tr("Point {p0}").format(p0=index + 1),
-                        area=AREA_NAMES[area], direction=direction.upper()))
                     if config.mode == "rtu-master":
                         used = config.usage.writing if direction == "tx" else not config.usage.writing or config.usage.readback
                     elif config.mode == "rtu-slave":
                         used = direction == "tx" or (area == "holding" and config.access_mode == "read-write")
                     else:
                         used = False  # TCP 当前未发布实时寄存器数值快照。
-                    checkbox.setEnabled(used)
-                    checkbox.setChecked(used)
                     if not used:
-                        bind(checkbox, 'setToolTip', tr('This operation supplies no live values in this direction; raw communication remains in the event log.'))
+                        continue
+                    checkbox = CheckBox(tr("{name} · {area} · {direction}").format(
+                        name=point.name or tr("Point {p0}").format(p0=index + 1),
+                        area=AREA_NAMES[area], direction=direction.upper()))
+                    checkbox.setChecked(True)
                     color, _ = self.series_style(key)
-                    checkbox.setStyleSheet(f"color: {color if used else COLORS['muted']};")
+                    checkbox.setStyleSheet(f"color: {color};")
                     checkbox.toggled.connect(lambda _: self.plot.update())
                     self.legend.addWidget(checkbox, len(self.selectors) // 2, len(self.selectors) % 2)
                     self.selectors[key] = checkbox

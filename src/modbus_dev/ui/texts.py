@@ -1,8 +1,9 @@
-"""Stable protocol keys mapped to presentation text."""
+"""将稳定的协议键映射为界面文案，供配置与监视组件共用。"""
 from .i18n import tr
 CHOICE_LABELS = {
     "tcp-slave": tr('TCP read-only slave'), "rtu-slave": tr('RTU slave'), "rtu-master": tr('RTU master'),
     "continuous": tr('Continuous'), "strict": tr('Strict'), "constant": tr('Constant'), "sine": tr('Sine wave'),
+    "triangle": tr('Triangle wave'),
     "read-only": tr('Read-only'), "read-write": tr('Read/write'),
     "read-holding": tr('FC03 · Read holding registers'), "read-input": tr('FC04 · Read input registers'),
     "write-single": tr('FC06 · Write single registers'), "write-multiple": tr('FC16 · Write multiple registers'),

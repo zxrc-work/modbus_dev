@@ -13,6 +13,7 @@ from .theme import METRICS
 from .widgets import CheckBox, ComboBox, SerialPortComboBox, label, refresh_style
 from .texts import CHOICE_LABELS, SCHEDULE_LATE_HELP
 from .form_state import FormState, programmatic_changes
+from .context_choices import ContextComboBox
 
 
 class ConfigurationPanel(QFrame):
@@ -32,6 +33,7 @@ class ConfigurationPanel(QFrame):
         self.fields["access_mode"].currentIndexChanged.connect(self.operation_changed)
         self.fields["master_operation"].currentIndexChanged.connect(self.operation_changed)
         self.fields["readback_every"].textChanged.connect(self.operation_changed)
+        self.fields["byte_order"].currentIndexChanged.connect(self.default_order_changed)
         for field in self.fields.values():
             signal = field.currentTextChanged if isinstance(field, QComboBox) else field.textChanged
             signal.connect(lambda *_: self.changed.emit())
@@ -107,6 +109,7 @@ class ConfigurationPanel(QFrame):
             form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
             for key, caption, choices in rows:
                 widget = (SerialPortComboBox() if key == "serial.port" else
+                          ContextComboBox() if key == "master_operation" else
                           ComboBox() if choices else QLineEdit())
                 if choices:
                     for value in choices:
@@ -150,10 +153,21 @@ class ConfigurationPanel(QFrame):
         bind(self.fields['readback_every'], 'setToolTip', tr('Read back every N cycles; 0 disables readback.'))
         bind(self.fields['schedule_tolerance_percent'], 'setToolTip', SCHEDULE_LATE_HELP)
         bind(self.fields['master_operation'], 'setToolTip', tr('Reads send no writes. FC06 writes one register per transaction; 32-bit points are split for raw-register diagnostics, not atomic updates. FC16 writes complete groups.'))
+        bind(self.fields['master_operation'], 'setPlaceholderText', tr('Select a read operation'))
+        self.operation_note = label(tr('The previous write operation is unavailable in read-only mode; select FC03 or FC04.'), "caption")
+        self.operation_note.setWordWrap(True)
+        self.operation_note.setProperty("tone", "error")
+        self.master_box.layout().addRow(self.operation_note)
+        # 写后读回固定使用 FC03；保留旧字段用于草稿兼容，不再展示无效下拉。
+        self.readback_note = label(tr('Write readback uses FC03 (holding registers).'), "caption")
+        self.readback_note.setWordWrap(True)
+        self.master_box.layout().addRow(self.readback_note)
+        self.fields["read_function"].hide()
+        self.master_box.layout().labelForField(self.fields["read_function"]).hide()
         connection.addStretch()
 
         data = page(tr('Data'))
-        group(data, tr('Default 32-bit encoding'), [("byte_order", tr('Default byte order'), list(numeric_type("float32").orders))])
+        self.default_order_box = group(data, tr('Default 32-bit encoding'), [("byte_order", tr('Default byte order'), list(numeric_type("float32").orders))])
         self.data_note = label("", "caption")
         self.data_note.setWordWrap(True)
         data.addWidget(self.data_note)
@@ -187,6 +201,8 @@ class ConfigurationPanel(QFrame):
 
     def text(self, key):
         field = self.fields[key]
+        if isinstance(field, ContextComboBox):
+            return str(field.draft_value())
         if isinstance(field, QComboBox) and field.isEditable():
             return field.currentText().strip()
         return str(field.currentData()) if isinstance(field, QComboBox) else field.text().strip()
@@ -213,6 +229,8 @@ class ConfigurationPanel(QFrame):
             if isinstance(field, QComboBox) and field.isEditable():
                 field.setCurrentIndex(field.findText(text, Qt.MatchExactly))
                 field.setEditText(text)
+            elif isinstance(field, ContextComboBox):
+                field.set_draft_value(text)
             elif isinstance(field, QComboBox):
                 field.setCurrentIndex(field.findData(text))
             else:
@@ -272,6 +290,10 @@ class ConfigurationPanel(QFrame):
             readback = 0
         return ParameterUsage(self.text("mode"), self.text("master_operation"), readback)
 
+    def default_order_changed(self, *_):
+        for editor in self.point_editors:
+            editor.set_default_order(self.text("byte_order"))
+
 
     def mode_changed(self, *_):
         mode = self.text("mode")
@@ -291,10 +313,9 @@ class ConfigurationPanel(QFrame):
         mode = self.text("mode")
         readonly = self.text("access_mode") == "read-only"
         operation = self.fields["master_operation"]
-        for index in range(operation.count()):
-            operation.model().item(index).setEnabled(not readonly or OPERATIONS[operation.itemData(index)] in (3, 4))
-        if mode == "rtu-master" and readonly and self.text("master_operation") in ("write-single", "write-multiple"):
-            operation.setCurrentIndex(operation.findData("read-input"))
+        operation.filter_values(tuple(key for key, function in OPERATIONS.items()
+                                      if mode != "rtu-master" or not readonly or function in (3, 4)))
+        self.operation_note.setVisible(mode == "rtu-master" and not operation.compatible())
         usage = self.parameter_usage()
         for key, widget in self.fields.items():
             widget.setEnabled(usage.field_active(key))
@@ -303,7 +324,11 @@ class ConfigurationPanel(QFrame):
             self.fields["read_function"].setCurrentIndex(self.fields["read_function"].findData("3"))
         bind(self.fields['read_function'], 'setToolTip', tr('Write readback uses FC03 and applies only when readback is enabled.'))
         bind(self.fields['readback_every'], 'setToolTip', tr('Read back with FC03 every N cycles; 0 disables readback.') if usage.writing else tr('Read-only operations and slave modes do not perform write readback.'))
+        self.fields["readback_every"].setVisible(usage.writing)
+        self.master_box.layout().labelForField(self.fields["readback_every"]).setVisible(usage.writing)
+        self.readback_note.setVisible(usage.writing)
         self.rts.setEnabled(usage.field_active("serial.rts_toggle"))
+        self.rts.setVisible(usage.rts_supported)
         bind(self.rts, 'setToolTip', tr('Supported by Windows serial drivers only; ignored on other platforms.'))
         for editor in self.point_editors:
             editor.set_usage(usage)
@@ -325,6 +350,11 @@ class ConfigurationPanel(QFrame):
 
     def update_points_summary(self):
         # 即时检查使用实际类型宽度，不解析用户尚未输入完毕的数值草稿。
+        shared_order_used = any(editor.enabled.isChecked()
+                                and numeric_type(editor.current_data_type()).registers > 1
+                                and editor.fields["byte_order"].draft_value() is None
+                                for editor in self.point_editors)
+        self.default_order_box.setVisible(shared_order_used)
         points = [PointConfig(enabled=editor.enabled.isChecked(), address=editor.fields["address"].value(),
                               data_type=editor.current_data_type())
                   for editor in self.point_editors]
@@ -338,8 +368,11 @@ class ConfigurationPanel(QFrame):
             text = "；".join(tr('Point {p0} overlaps point {p1}').format(p0=a + 1, p1=b + 1) for a, b in conflicts)
         else:
             text = tr('{p0} / {p1} points enabled').format(p0=count, p1=MAX_POINTS) if count else tr('Enable at least one point')
+        incompatible = any(editor.selection_issues() for editor in self.point_editors)
+        if incompatible:
+            text += tr(' · Resolve incompatible point selections below')
         if overflow:
             text += tr(' · Address range exceeds 65535')
         bind(self.points_status, 'setText', text)
-        self.points_status.setProperty("tone", "error" if conflicts or overflow or not count else "idle")
+        self.points_status.setProperty("tone", "error" if conflicts or overflow or not count or incompatible else "idle")
         refresh_style(self.points_status)

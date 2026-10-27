@@ -1,9 +1,10 @@
-"""Shared field codecs for configuration drafts; no disk access or business validation."""
+"""配置草稿的公共字段编解码，保留暂不适用的选择，不访问磁盘或执行业务校验。"""
 from contextlib import contextmanager, ExitStack
 from functools import wraps
 
 from PySide6.QtCore import QSignalBlocker
 from PySide6.QtWidgets import QAbstractButton, QComboBox, QLineEdit, QSpinBox
+from .context_choices import ContextComboBox
 
 
 class FormState:
@@ -37,7 +38,9 @@ class FormState:
     def capture(self):
         values = {}
         for key, field in self.fields.items():
-            if isinstance(field, QComboBox):
+            if isinstance(field, ContextComboBox):
+                values[key] = field.draft_value()
+            elif isinstance(field, QComboBox):
                 values[key] = field.currentText() if field.isEditable() else field.currentData()
             elif isinstance(field, QAbstractButton):
                 values[key] = field.isChecked()
@@ -54,7 +57,9 @@ class FormState:
             field = self.fields.get(key)
             if field is None:
                 continue
-            if isinstance(field, QComboBox) and not field.isEditable():
+            if isinstance(field, ContextComboBox):
+                valid = field.accepts_draft_value(value)
+            elif isinstance(field, QComboBox) and not field.isEditable():
                 valid = value is None or field.findData(value) >= 0
             elif isinstance(field, QAbstractButton):
                 valid = type(value) is bool
@@ -74,7 +79,9 @@ class FormState:
                 field = self.fields.get(key)
                 if field is None:
                     continue
-                if isinstance(field, QComboBox):
+                if isinstance(field, ContextComboBox):
+                    field.set_draft_value(value)
+                elif isinstance(field, QComboBox):
                     field.setCurrentIndex(field.findText(value) if field.isEditable() else field.findData(value))
                     if field.isEditable():
                         field.setEditText(value)

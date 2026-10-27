@@ -1,8 +1,8 @@
 [
-  {"data_type":"int16","byte_order":"AB","value":-123,"registers":[65413]},
-  {"data_type":"int16","byte_order":"BA","value":-123,"registers":[34303]},
-  {"data_type":"uint16","byte_order":"AB","value":4660,"registers":[4660]},
-  {"data_type":"uint16","byte_order":"BA","value":4660,"registers":[13330]},
+  {"data_type":"int16","byte_order":"B12","value":-123,"registers":[65413]},
+  {"data_type":"int16","byte_order":"B21","value":-123,"registers":[34303]},
+  {"data_type":"uint16","byte_order":"B12","value":4660,"registers":[4660]},
+  {"data_type":"uint16","byte_order":"B21","value":4660,"registers":[13330]},
   {"data_type":"int32","byte_order":"B1234","value":-2147483647,"registers":[32768,1]},
   {"data_type":"int32","byte_order":"B4321","value":-2147483647,"registers":[256,128]},
   {"data_type":"int32","byte_order":"B2143","value":-2147483647,"registers":[128,256]},

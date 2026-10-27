@@ -12,7 +12,7 @@ RTU 采用库编码加受限 deadline 适配器，见 [选型记录](pymodbus-ev
 ```text
 CLI ─────────────────┐
                      ├─ application：单会话、运行策略、停止、事件、结果
-GUI → worker process ┘       ├─ sources：常量/正弦/DYN
+GUI → worker process ┘       ├─ sources：常量/正弦/三角波/DYN
                              ├─ mapping：点表和数值编码
                              ├─ engine：交易接口与库适配器
                              └─ reporting：异步记录与摘要

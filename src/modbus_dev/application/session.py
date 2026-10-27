@@ -7,7 +7,7 @@ import traceback
 from ..domain.events import Event
 from ..domain.operations import cycle_requests
 from ..domain.transactions import StopRequested, valid_reply_counts
-from ..sources.synthetic import SyntheticSource
+from ..sources.synthetic import SYNTHETIC_KINDS, SyntheticSource
 from ..reporting.journal import Journal, LogWriteError
 from .control import Control
 from .metrics import Metric
@@ -19,8 +19,8 @@ _ACTIVE_SESSION = threading.Lock()
 
 def check_capabilities(config):
     config.validate()
-    if config.usage.source and any(point.source.kind not in ("constant", "sine") for point in config.enabled_points):
-        raise ValueError("This build runs constant/sine sources only; offline sources are deferred until after GUI")
+    if config.usage.source and any(point.source.kind not in SYNTHETIC_KINDS for point in config.enabled_points):
+        raise ValueError("This build runs constant/sine/triangle sources only; offline sources are deferred until after GUI")
 
 
 class SessionRunner:
