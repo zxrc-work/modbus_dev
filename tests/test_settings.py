@@ -1,4 +1,4 @@
-"""Exercise stopped-state autosave, real process restart, and write failure handling."""
+"""验证停止状态自动保存、真实进程重启以及写入失败处理。"""
 import importlib.util
 import json
 import os
@@ -163,7 +163,7 @@ w.close()
             self.window.save()
             save.assert_not_called()
         exported = json.loads(target.read_text(encoding="utf-8"))
-        self.assertEqual(exported["schema_version"], 3)
+        self.assertEqual(exported["schema_version"], 4)
         self.assertEqual(exported["unit"], 19)
         self.assertNotIn("language", exported)
         self.assertNotIn("session", exported)

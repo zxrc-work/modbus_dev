@@ -9,7 +9,10 @@ from .events import ConfigurationError
 from .usage import ParameterUsage
 from .numeric import NUMERIC_TYPES, canonical_order, encode_value, numeric_type, parse_integer, resolve_order
 
-MAX_POINTS = 4
+MAX_POINTS = 8
+CONFIG_VERSION = 4
+MIN_PERIOD_MS = 20
+MAX_PERIOD_MS = 60000
 # 仅供旧 float32 点表和预留槽位的默认间距使用，实际占用由每点类型决定。
 REGISTERS_PER_POINT = NUMERIC_TYPES["float32"].registers
 SOURCE_FIELDS = {"constant": ("value",), "sine": ("value", "amplitude", "frequency_hz"),
@@ -149,6 +152,9 @@ class PointConfig:
     source: SourceConfig = field(default_factory=SourceConfig)
     data_type: str = "float32"
     byte_order: str | None = None
+    area: str = "input"
+    operation: str | None = None
+    readback_every: int | None = None
 
     def __post_init__(self):
         object.__setattr__(self, "byte_order", canonical_order(self.byte_order))
@@ -183,14 +189,16 @@ class PointConfig:
 
 
 def default_point(index):
-    return PointConfig(enabled=index == 0, address=index * REGISTERS_PER_POINT)
+    return PointConfig(enabled=index == 0, address=index * REGISTERS_PER_POINT,
+                       byte_order="B1234", operation="write-multiple", readback_every=0)
 
 
-def point_conflicts(points):
+def point_conflicts(points, area_of=lambda point: point.area):
     """返回启用点中重叠的槽位编号，供配置校验和界面即时提示共用。"""
     active = [(i, point) for i, point in enumerate(points) if point.enabled]
     return [(i, j) for n, (i, first) in enumerate(active) for j, second in active[n + 1:]
-            if first.address < second.address + second.register_count
+            if area_of(first) == area_of(second)
+            and first.address < second.address + second.register_count
             and second.address < first.address + first.register_count]
 
 
@@ -205,17 +213,17 @@ class LoggingConfig:
 
 @dataclass(frozen=True)
 class TaskConfig:
-    schema_version: int = 3
+    schema_version: int = CONFIG_VERSION
     mode: str = "rtu-master"
     policy: str = "continuous"
     unit: int = 1
     points: tuple[PointConfig, ...] = field(default_factory=lambda: tuple(
         default_point(i) for i in range(MAX_POINTS)))
-    byte_order: str = "B1234"
+    byte_order: str = field(default="B1234", compare=False, repr=False)
     access_mode: str = "read-write"
-    master_operation: str = "write-multiple"
-    read_function: int = 3
-    readback_every: int = 0
+    master_operation: str = field(default="write-multiple", compare=False, repr=False)
+    read_function: int = field(default=3, compare=False, repr=False)
+    readback_every: int = field(default=0, compare=False, repr=False)
     period_ms: int = 100
     schedule_tolerance_percent: float = 10.0
     timeout_ms: int = 80
@@ -225,78 +233,71 @@ class TaskConfig:
     port: int = 1502
     logging: LoggingConfig = field(default_factory=LoggingConfig)
 
+    def __post_init__(self):
+        # 主站区域由逐点功能码唯一确定，避免导出的区域与实际请求相矛盾。
+        if self.mode == "rtu-master":
+            object.__setattr__(self, "points", tuple(replace(point, area=(
+                "input" if (point.operation or self.master_operation) == "read-input" else "holding"))
+                for point in self.points))
+
     @classmethod
-    def from_mapping(cls, data):
+    def from_mapping(cls, data, *, validate=True):
         data = dict(section(data, "config", (*cls.__dataclass_fields__, "addresses", "source")))
         # 旧从站配置继续保持只读权限，不因升级悄悄开放写入。
-        if data.get("mode") == "rtu-slave":
+        if data.get("mode") in ("rtu-slave", "tcp-slave"):
             data.setdefault("access_mode", "read-only")
         if data.get("access_mode") == "read-only":
             data.setdefault("master_operation", "read-input")
         usage = ParameterUsage(data.get("mode", "rtu-master"), data.get("master_operation", "write-multiple"))
-        version = data.get("schema_version", 3 if "points" in data else 1)
-        number(version, "schema_version", 1, 3, True)
-        number(data.get("period_ms", 100), "period_ms", 1, 60000, True)
-        if version == 1:
-            if "points" in data:
-                fail("points", "independent points require schema_version=2 or 3")
-            addresses = data.pop("addresses", [0])
-            if not isinstance(addresses, (list, tuple)) or not 1 <= len(addresses) <= MAX_POINTS:
-                fail("addresses", f"provide 1..{MAX_POINTS} float32 point addresses", reason="address_count", maximum=MAX_POINTS)
-            source = SourceConfig.from_mapping(data.pop("source", {}), active=usage.source)
-            source.validate(data.get("period_ms", 100), len(addresses), active=usage.source)
-            # 旧版共享源只在加载边界展开；运行时始终使用每点独立配置。
-            points = []
-            for i, address in enumerate(addresses):
-                point_source = (replace(source, channels=(source.channels[i],))
-                                if usage.source and source.kind == "dyn" else source)
-                points.append(PointConfig(address=address, source=point_source))
-        else:
-            if "addresses" in data or "source" in data:
-                fail("config", "schema_version>=2 uses points instead of addresses/source")
-            raw_points = data.pop("points", [asdict(default_point(0))])
-            if not isinstance(raw_points, (list, tuple)) or not 1 <= len(raw_points) <= MAX_POINTS:
-                fail("points", f"provide 1..{MAX_POINTS} point configurations", reason="point_count", maximum=MAX_POINTS)
-            points = [PointConfig.from_mapping(point, f"points[{i}]", source_used=usage.source)
-                      for i, point in enumerate(raw_points)]
+        number(data.get("period_ms", 100), "period_ms", MIN_PERIOD_MS, MAX_PERIOD_MS, True)
+        from .migration import migrate_points
+        points = migrate_points(data, usage)
         points.extend(default_point(i) for i in range(len(points), MAX_POINTS))
-        data["points"], data["schema_version"] = tuple(points), 3
+        data["points"], data["schema_version"] = tuple(points), CONFIG_VERSION
         serial = section(data.pop("serial", {}), "serial", SerialConfig.__dataclass_fields__)
         logging = section(data.pop("logging", {}), "logging", LoggingConfig.__dataclass_fields__)
         result = cls(**data, serial=SerialConfig(**serial), logging=LoggingConfig(**logging))
-        result.validate()
+        if validate:
+            result.validate()
         return result
 
     def validate(self):
-        number(self.schema_version, "schema_version", 3, 3, True)
+        number(self.schema_version, "schema_version", CONFIG_VERSION, CONFIG_VERSION, True)
         choice(self.mode, "mode", ("rtu-master", "rtu-slave", "tcp-slave"))
         choice(self.policy, "policy", ("continuous", "strict"))
         usage = self.usage
-        if usage.serial:
+        if usage.serial or self.mode == "tcp-slave":
             choice(self.access_mode, "access_mode", ("read-only", "read-write"))
-        from .operations import OPERATIONS
-        if usage.master:
-            choice(self.master_operation, "master_operation", tuple(OPERATIONS))
-        if self.mode == "rtu-master" and self.access_mode == "read-only" and self.master_function in (6, 16):
-            fail("master_operation", "只读主站不能执行写入操作", reason="readonly_write")
         number(self.unit, "unit", 1, 247, True)
-        number(self.period_ms, "period_ms", 1, 60000, True)
+        number(self.period_ms, "period_ms", MIN_PERIOD_MS, MAX_PERIOD_MS, True)
         if usage.master:
             number(self.schedule_tolerance_percent, "schedule_tolerance_percent", 0, 100)
         number(self.timeout_ms, "timeout_ms", 1, 60000, True)
         number(self.duration_s, "duration_s", 0, 86400 * 365)
-        if usage.writing:
-            number(self.readback_every, "readback_every", 0, 1000000, True)
         if usage.readback:
-            number(self.read_function, "read_function", 3, 3, True)
-        choice(self.byte_order, "byte_order", numeric_type("float32").orders)
+            choice(self.read_function, "read_function", (3,))
         if not 1 <= len(self.points) <= MAX_POINTS:
             fail("points", f"provide 1..{MAX_POINTS} point configurations", reason="point_count", maximum=MAX_POINTS)
         for i, point in enumerate(self.points):
-            point.validate(self.period_ms, f"points[{i}]", source_used=usage.source, default_order=self.byte_order)
+            point_usage = self.point_usage(point)
+            point.validate(self.period_ms, f"points[{i}]", source_used=point_usage.source, default_order=self.byte_order)
+            if not point.enabled:
+                continue
+            choice(point.area, f"points[{i}].area", ("holding", "input"))
+            if usage.master:
+                from .operations import OPERATIONS
+                choice(point_usage.operation, f"points[{i}].operation", tuple(OPERATIONS))
+                if self.access_mode == "read-only" and point_usage.writing:
+                    fail(f"points[{i}].operation", "只读主站不能执行写入操作", reason="readonly_write")
+                if point_usage.writing:
+                    number(self.point_readback(point), f"points[{i}].readback_every", 0, 1000000, True)
+                    if point_usage.operation == "write-single" and point.register_count != 1:
+                        fail(f"points[{i}].operation", "FC06 requires a 16-bit point; use FC16 for 32-bit values", reason="fc06_width")
+            elif point.area == "holding" and point.source.kind != "constant":
+                fail(f"points[{i}].source.kind", "holding registers accept an initial constant only", reason="holding_initial")
         if not self.enabled_points:
             fail("points", "请至少启用一个测点", reason="no_enabled_points")
-        conflicts = point_conflicts(self.points)
+        conflicts = point_conflicts(self.points, self.point_area)
         if conflicts:
             first, second = conflicts[0]
             fail("points", f"测点 {first + 1} 与测点 {second + 1} 的寄存器范围重叠", reason="point_overlap", first=first + 1, second=second + 1)
@@ -307,18 +308,47 @@ class TaskConfig:
             number(self.port, "port", 1, 65535, True)
         self.logging.validate()
         if self.mode == "rtu-master":
-            from .wire import minimum_cycle_ms
-            minimum = minimum_cycle_ms(self)
-            if not minimum < self.timeout_ms < self.period_ms - self.serial.gap_ms:
-                fail("timeout_ms", f"must exceed {minimum:.3f} ms transaction budget and leave "
-                     f"{self.serial.gap_ms:.3f} ms silence before the next slot", reason="transaction_budget", minimum=minimum, gap=self.serial.gap_ms)
+            from .wire import cycle_budget
+            budget = cycle_budget(self)
+            if self.period_ms < budget.minimum_period_ms:
+                fail("period_ms", f"minimum cycle is {budget.minimum_period_ms} ms for {budget.transactions} requests "
+                     f"including {budget.reserve_ms} ms workflow reserve", reason="cycle_minimum",
+                     minimum=budget.minimum_period_ms, requests=budget.transactions, wire=budget.line_ms)
+            if not budget.transaction_ms < self.timeout_ms <= self.period_ms - self.serial.gap_ms:
+                fail("timeout_ms", f"cycle budget must exceed {budget.transaction_ms:.3f} ms and leave "
+                     f"{self.serial.gap_ms:.3f} ms final silence",
+                     reason="transaction_budget", minimum=budget.transaction_ms,
+                     gap=self.serial.gap_ms)
 
     def to_mapping(self):
-        return asdict(self)
+        # 新文件只保存每点的有效设置，不再导出全局操作和继承编码。
+        data = asdict(self)
+        for key in ("byte_order", "master_operation", "read_function", "readback_every"):
+            data.pop(key)
+        data["schema_version"] = CONFIG_VERSION
+        for point, value in zip(self.points, data["points"]):
+            value["byte_order"] = point.encoding_order(self.byte_order) if point.enabled else point.byte_order
+            value["operation"] = self.point_usage(point).operation
+            value["readback_every"] = self.point_readback(point)
+        return data
+
+    def point_usage(self, point):
+        return ParameterUsage(self.mode, point.operation or self.master_operation, self.point_readback(point))
+
+    def point_readback(self, point):
+        return self.readback_every if point.readback_every is None else point.readback_every
+
+    def point_area(self, point):
+        if self.mode == "rtu-master":
+            return "input" if self.point_usage(point).operation == "read-input" else "holding"
+        return point.area
 
     @property
     def usage(self):
-        return ParameterUsage(self.mode, self.master_operation, self.readback_every)
+        usages = [self.point_usage(point) for point in self.enabled_points]
+        writing = any(item.writing for item in usages)
+        return ParameterUsage(self.mode, "write-multiple" if writing else "read-input",
+                              int(any(item.readback for item in usages)))
 
     @property
     def enabled_points(self):
@@ -363,7 +393,7 @@ def load_config(path):
         operation = data.get("master_operation", "read-input" if data.get("access_mode") == "read-only" else "write-multiple")
         usage = ParameterUsage(data.get("mode", "rtu-master"), operation)
         for index, point in enumerate(data["points"]):
-            if not isinstance(point, dict) or point.get("enabled", True) is not True or not usage.source:
+            if not isinstance(point, dict) or point.get("enabled", True) is not True or not ParameterUsage(data.get("mode", "rtu-master"), point.get("operation") or operation).source:
                 continue
             data_type = point.get("data_type", "float32")
             source = point.get("source")

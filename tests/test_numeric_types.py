@@ -30,7 +30,8 @@ VECTORS = json.loads((Path(__file__).parent / "fixtures/numeric-vectors.json").r
 
 
 def config(points, mode="tcp-slave", **options):
-    return TaskConfig.from_mapping(dict(mode=mode, serial=dict(port="TEST", baud=115200), points=points, **options))
+    version = options.pop("schema_version", 4)
+    return TaskConfig.from_mapping(dict(schema_version=version, mode=mode, serial=dict(port="TEST", baud=115200), points=points, **options))
 
 
 def mixed_points():
@@ -157,7 +158,7 @@ class NumericConfigurationTests(unittest.TestCase):
     def test_legacy_versions_keep_float_type_and_shared_order(self):
         for version, fields in ((1, dict(addresses=[0])), (2, dict(points=[dict(address=0)]))):
             old = TaskConfig.from_mapping(dict(schema_version=version, mode="tcp-slave", byte_order="B4321", **fields))
-            self.assertEqual(old.schema_version, 3)
+            self.assertEqual(old.schema_version, 4)
             self.assertEqual(old.enabled_points[0].data_type, "float32")
             self.assertEqual(old.enabled_points[0].encoding_order(old.byte_order), "B4321")
             self.assertEqual(old, TaskConfig.from_mapping(json.loads(json.dumps(old.to_mapping()))))
@@ -212,16 +213,14 @@ class MixedCommunicationTests(unittest.TestCase):
         requests = cycle_requests(settings, values, True)
         self.assertEqual([(r.function, r.address, r.count, r.registers) for r in requests],
                          [(16, 0, 6, MIXED_WORDS), (3, 0, 6, MIXED_WORDS)])
-        reads = cycle_requests(replace(settings, master_operation="read-input"))
+        reads = cycle_requests(replace(settings, points=tuple(replace(point, operation="read-input") for point in settings.points)))
         self.assertEqual([(r.function, r.address, r.count) for r in reads], [(4, 0, 6)])
         # FC16 请求 21 字节/应答 8，FC03 请求 8/应答 17；两笔有三段静默。
         self.assertAlmostEqual(minimum_cycle_ms(settings), 54 * 10000 / 115200 + 3 * 1.75)
 
     def test_single_word_fc06_and_multiword_raw_diagnostics_remain_available(self):
-        settings = config(mixed_points(), mode="rtu-master", master_operation="write-single")
-        requests = cycle_requests(settings, MIXED_VALUES)
-        self.assertEqual([(r.function, r.address, r.registers) for r in requests],
-                         [(6, index, (word,)) for index, word in enumerate(MIXED_WORDS)])
+        with self.assertRaises(ConfigurationError):
+            config(mixed_points(), mode="rtu-master", master_operation="write-single")
         settings = config([dict(data_type="uint16", source=dict(value=65535))],
                           mode="rtu-master", master_operation="write-single")
         self.assertEqual([(r.function, r.count, r.registers) for r in cycle_requests(settings, [65535])],
@@ -248,7 +247,7 @@ class MixedCommunicationTests(unittest.TestCase):
                                  bytes((function | 128, 2)))
 
     def test_live_values_keep_integer_precision_partial_raw_and_same_value_updates(self):
-        settings = config(mixed_points())
+        settings = config([dict(point, area="holding") for point in mixed_points()])
         live = LiveValues(settings)
         event = Event("register_values", "RX", details=dict(area="holding", direction="rx", address=0,
                       registers=MIXED_WORDS, function=16, sampled_s=.1, quality="received"))
@@ -267,7 +266,7 @@ class MixedCommunicationTests(unittest.TestCase):
         self.assertEqual((partial["value"], partial["quality"], partial["registers"]), (None, "partial", [0x7f80]))
 
     def test_rtu_raw_writes_preserve_original_words_and_independent_input_bank(self):
-        settings = config(mixed_points(), mode="rtu-slave", access_mode="read-write")
+        settings = config(mixed_points(), mode="rtu-slave", access_mode="read-write", schema_version=3)
         events = []
         bank = RtuRegisters(settings, Clock(), events.append)
         bank.publish(dict(enumerate(MIXED_WORDS)))
@@ -298,7 +297,7 @@ class MixedCommunicationTests(unittest.TestCase):
     def test_mixed_snapshot_over_actual_tcp(self):
         ready, stop = threading.Event(), threading.Event()
         engines, results = [], []
-        settings = config(mixed_points(), duration_s=0)
+        settings = config(mixed_points(), duration_s=0, schema_version=3)
         def factory(c, control, emit):
             engine = TcpSlaveEngine(replace(c, port=0), control, emit)
             engines.append(engine)

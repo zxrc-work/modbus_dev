@@ -19,7 +19,7 @@ _ACTIVE_SESSION = threading.Lock()
 
 def check_capabilities(config):
     config.validate()
-    if config.usage.source and any(point.source.kind not in SYNTHETIC_KINDS for point in config.enabled_points):
+    if config.usage.source and any(point.source.kind not in SYNTHETIC_KINDS for point in config.enabled_points if config.point_usage(point).source):
         raise ValueError("This build runs constant/sine/triangle sources only; offline sources are deferred until after GUI")
 
 
@@ -238,8 +238,7 @@ class SessionRunner:
                         self.control.check()
                         self.current_slot, self.current_scheduled = slot, decision.scheduled_s
                         values = source.sample(slot) if source is not None else ()
-                        readback = usage.readback and slot % self.config.readback_every == 0
-                        requests = cycle_requests(self.config, values, readback)
+                        requests = cycle_requests(self.config, values, slot=slot)
                         # Reserve the complete remaining group plan before the first write.
                         minimum = sum(self.engine.minimum_s(r) for r in requests)
                         minimum += (len(requests) - 1) * self.config.serial.gap_ms / 1000

@@ -86,6 +86,7 @@ def application_stylesheet():
     QLabel[role="section"] {{ font-size: {m.section_size}px; font-weight: 600; }}
     QLabel[role="caption"] {{ color: {c['muted']}; font-size: {m.caption_size}px; }}
     QLabel[role="pointRange"] {{ color: {c['muted']}; font-size: {m.caption_size}px; }}
+    QLabel[tone="warning"] {{ color: {c["warning"]}; }}
     QLabel[tone="error"] {{ color: {c['error']}; }}
     QLabel[role="metric"] {{ font-size: {m.metric_size}px; font-weight: 600; }}
     QLabel#brandMark {{ background: {c['accent']}; color: {c['panel']}; border-radius: 10px;

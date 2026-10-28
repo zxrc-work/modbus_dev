@@ -1202,5 +1202,183 @@ The UI retains the latest 2000 lines; complete logs are saved to the results dir
       <source>Write readback uses FC03 (holding registers).</source>
       <translation>写后读回固定使用 FC03（保持寄存器）。</translation>
     </message>
+    <message>
+      <source>
+Currently read-only: master writes are rejected.</source>
+      <translation>
+当前为只读，拒绝主站写入。</translation>
+    </message>
+    <message>
+      <source>Holding (FC03)</source>
+      <translation>保持区（FC03）</translation>
+    </message>
+    <message>
+      <source>Input (FC04)</source>
+      <translation>输入区（FC04）</translation>
+    </message>
+    <message>
+      <source>Same address, two independent register areas.
+Holding: read with FC03, write with FC06/16; the source initializes values only at session start.
+Input: read with FC04; the source updates values continuously, unaffected by master writes.</source>
+      <translation>同一地址，两个独立寄存器区。
+保持区：FC03 读取，FC06/16 写入；数据源仅用于启动时初始化。
+输入区：FC04 读取；持续按数据源更新，不受主站写入影响。</translation>
+    </message>
+    <message>
+      <source>Writes target holding registers; write readback uses FC03. FC04 reads the independent input registers and cannot verify this write.</source>
+      <translation>写入目标为保持区，写后读回使用 FC03；FC04 读取的是独立输入区，不能用于验证本次写入。</translation>
+    </message>
+    <message>
+      <source>20–60000 ms. All enabled points share one cycle; master limits include a 10 ms workflow reserve.</source>
+      <translation>20～60000ms。所有启用点共用周期；主站最低周期包含每周期一次的 10ms 流程预留。</translation>
+    </message>
+    <message>
+      <source>Access permission</source>
+      <translation>访问权限</translation>
+    </message>
+    <message>
+      <source>Choose an operation, address, type and byte order for each point. Read values come from the slave; only write points use a local source. Contiguous points with the same operation may share one request.</source>
+      <translation>每个测点独立设置操作、地址、类型和字节序。读取值来自从站，只有写入点使用本机数据源；相同操作的连续地址可合并请求。</translation>
+    </message>
+    <message>
+      <source>Complete a valid configuration: {detail}</source>
+      <translation>请完善配置：{detail}</translation>
+    </message>
+    <message>
+      <source>Configure the connection, shared timing and up to eight independent points.</source>
+      <translation>配置连接、共用时序与最多八个独立测点。</translation>
+    </message>
+    <message>
+      <source>Data update period: 20–60000 ms. The master controls communication polling.</source>
+      <translation>数据更新周期：20～60000ms。通信轮询频率由主站决定。</translation>
+    </message>
+    <message>
+      <source>Each point belongs to one register area. Holding: FC03 reads, FC06/16 writes; initial values are retained until a master write. Input: FC04 reads values continuously updated by the source. The two areas are independent, even at the same address.</source>
+      <translation>每个测点只配置一个寄存器区。保持区：FC03 读取，FC06/16 写入；配置初始值，之后保留主站写入。输入区：FC04 读取，持续按数据源更新。两区相互独立，同地址也不是同一份数据。</translation>
+    </message>
+    <message>
+      <source>Each point exposes one register area: input values follow the source; holding values retain master writes after initialization.</source>
+      <translation>每点独立选择寄存器区：输入区按数据源更新，保持区初始化后保留主站写入。</translation>
+    </message>
+    <message>
+      <source>Each point runs its configured read or write operation; optional write readback uses FC03. All points share one cycle.</source>
+      <translation>每点执行各自的读写操作；写入点可开启 FC03 读回，所有点共用周期。</translation>
+    </message>
+    <message>
+      <source>Each point selects its own operation. Writes may enable FC03 readback; FC04 reads a separate register area.</source>
+      <translation>每点独立选择操作。写入可开启 FC03 读回；FC04 读取的是独立输入区。</translation>
+    </message>
+    <message>
+      <source>Edit</source>
+      <translation>展开 / 收起</translation>
+    </message>
+    <message>
+      <source>Expand point {p0}</source>
+      <translation>展开测点 {p0}</translation>
+    </message>
+    <message>
+      <source>FC03 readback every N cycles; 0 disables it for this point.</source>
+      <translation>每 N 个周期用 FC03 读回此点；0 表示此点不读回。</translation>
+    </message>
+    <message>
+      <source>FC06 writes one 16-bit register. Use FC16 for a 32-bit point.</source>
+      <translation>FC06 只能写一个 16 位寄存器；32 位测点请使用 FC16。</translation>
+    </message>
+    <message>
+      <source>Holding registers</source>
+      <translation>保持区</translation>
+    </message>
+    <message>
+      <source>Holding registers accept an initial constant only; use input registers for continuous source updates.</source>
+      <translation>保持区只设置初始常量；需要数据源持续更新时请选择输入区。</translation>
+    </message>
+    <message>
+      <source>Initial holding value; later master writes are retained. Read it with FC03.</source>
+      <translation>保持区初始值；之后保留主站写入，通过 FC03 读取。</translation>
+    </message>
+    <message>
+      <source>Initial value</source>
+      <translation>初始值</translation>
+    </message>
+    <message>
+      <source>Input registers</source>
+      <translation>输入区</translation>
+    </message>
+    <message>
+      <source>Input values follow the source; holding values initialize once.</source>
+      <translation>输入区按数据源更新，保持区只初始化一次。</translation>
+    </message>
+    <message>
+      <source>Master scheduling</source>
+      <translation>主站调度</translation>
+    </message>
+    <message>
+      <source>Minimum cycle is {minimum} ms for {requests} requests, including the 10 ms workflow reserve. Increase the period, raise the baud rate or reduce requests.</source>
+      <translation>{requests} 笔请求的最低允许周期为 {minimum}ms，已包含 10ms 流程预留。请增加周期、提高波特率或减少请求。</translation>
+    </message>
+    <message>
+      <source>Operation</source>
+      <translation>操作</translation>
+    </message>
+    <message>
+      <source>Register area</source>
+      <translation>寄存器区</translation>
+    </message>
+    <message>
+      <source>Remote start address</source>
+      <translation>对端起始地址</translation>
+    </message>
+    <message>
+      <source>Select an operation compatible with access and data width.</source>
+      <translation>请选择符合访问权限与数据宽度的操作。</translation>
+    </message>
+    <message>
+      <source>{points} points → {requests} requests (busiest cycle). Line {line:.1f} ms + workflow 10 ms; minimum {minimum} ms, yellow below {warning} ms. Current {period} ms.</source>
+      <translation>{points} 个测点 → 最忙周期 {requests} 笔请求。线路 {line:.1f}ms + 流程预留 10ms；最低 {minimum}ms，低于 {warning}ms 黄色预警。当前 {period}ms。</translation>
+    </message>
+    <message>
+      <source>TCP slave</source>
+      <translation>TCP 从站</translation>
+    </message>
+    <message>
+      <source>{points} points → {requests} requests (busiest cycle). Line {line:.3f} ms + workflow 10 ms; minimum {minimum} ms, yellow below {warning} ms. Current {period} ms.</source>
+      <translation>{points} 个测点 → 最忙周期 {requests} 笔请求。线路 {line:.3f}ms + 流程预留 10ms；最低 {minimum}ms，低于 {warning}ms 黄色预警。当前 {period}ms。</translation>
+    </message>
+    <message>
+      <source>20–60000 ms. All enabled input-register points share this local update period. It does not update holding registers or control how often the master reads.</source>
+      <translation>20～60000ms。所有启用的输入区测点共用本机更新周期；不更新保持区，也不决定主站读取频率。</translation>
+    </message>
+    <message>
+      <source>20–60000 ms. Executes one round of configured point reads and writes per cycle. The minimum depends on the actual requests and includes one 10 ms workflow reserve per cycle.</source>
+      <translation>20～60000ms。每个周期执行一轮已配置测点的读写；最低周期按实际请求计算，并包含每周期一次的 10ms 流程预留。</translation>
+    </message>
+    <message>
+      <source>Communication polling period (ms)</source>
+      <translation>通信轮询周期（ms）</translation>
+    </message>
+    <message>
+      <source>Each point belongs to one register area. The two areas are independent, even at the same address.</source>
+      <translation>每个测点只配置一个寄存器区；两区相互独立，同地址也不是同一份数据。</translation>
+    </message>
+    <message>
+      <source>Holding stores values for master reads and, when read/write access is enabled, retains master writes. Input values are generated locally for master reads only.</source>
+      <translation>保持区保存数值供主站读取，开放读写后可接收并保存主站写入；输入区由本机生成，只供主站读取。</translation>
+    </message>
+    <message>
+      <source>Holding: stores values for the master to read with FC03. With read/write access enabled, accepts and retains master writes via FC06/16.</source>
+      <translation>保持区：保存数值供主站读取（FC03）；开放读写后，接收并保存主站写入（FC06/16）。</translation>
+    </message>
+    <message>
+      <source>Input register update period (ms)</source>
+      <translation>输入区数据更新周期（ms）</translation>
+    </message>
+    <message>
+      <source>Input: the local source generates and updates values for the master to read with FC04. The master cannot write them.</source>
+      <translation>输入区：本机按数据源生成并更新数值，供主站读取（FC04）；主站不能写入。</translation>
+    </message>
+    <message>
+      <source>Set only when the session starts. Later master writes are retained; the input register update period does not refresh this value.</source>
+      <translation>仅在会话启动时设置，之后保留主站写入；不随输入区数据更新周期刷新。</translation>
+    </message>
   </context>
 </TS>

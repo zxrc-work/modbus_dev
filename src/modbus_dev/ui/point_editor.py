@@ -5,10 +5,13 @@ from dataclasses import asdict
 from PySide6.QtCore import Signal, Qt, QSignalBlocker
 from PySide6.QtWidgets import (
     QFormLayout, QGroupBox, QHBoxLayout, QLineEdit,
-    QVBoxLayout, QWidget,
+    QVBoxLayout, QWidget, QToolButton,
 )
 
 from ..domain.config import PointConfig, SOURCE_FIELDS
+from ..domain.usage import ParameterUsage
+from ..domain.operations import OPERATIONS
+from .texts import CHOICE_LABELS, HOLDING_AREA_HELP, INPUT_AREA_HELP, SLAVE_AREAS_HELP, HOLDING_INITIAL_HELP
 from ..domain.numeric import NUMERIC_TYPES, ORDERS, canonical_order, numeric_type, parse_integer
 from .context_choices import ContextComboBox
 from .theme import METRICS
@@ -25,7 +28,8 @@ class PointEditor(QGroupBox):
         self._loading = False
         self._source_used = True
         self._source_tip = ""
-        self._default_order = "B1234"
+        self._usage = ParameterUsage("tcp-slave")
+        self._last_type = "float32"
         self._point = PointConfig(enabled=False)
         self.setObjectName(f"point-{index + 1}")
         layout = QVBoxLayout(self)
@@ -39,6 +43,12 @@ class PointEditor(QGroupBox):
         self.range_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         header.addWidget(self.enabled)
         header.addWidget(self.range_label, 1)
+        self.expand = QToolButton()
+        self.expand.setCheckable(True)
+        self.expand.setChecked(index == 0)
+        bind(self.expand, 'setText', tr('Edit'))
+        bind(self.expand, 'setAccessibleName', tr('Expand point {p0}').format(p0=index + 1))
+        header.addWidget(self.expand)
         layout.addLayout(header)
         self.body = QWidget()
         self.form = QFormLayout(self.body)
@@ -48,6 +58,7 @@ class PointEditor(QGroupBox):
         self.form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         self.fields = {"name": QLineEdit(), "address": SpinBox(),
                        "data_type": ComboBox(), "byte_order": ContextComboBox(normalize=canonical_order),
+                       "operation": ContextComboBox(), "area": ComboBox(), "readback_every": SpinBox(),
                        "source.kind": ContextComboBox(allow_unknown=True),
                        "source.value": QLineEdit(), "source.amplitude": QLineEdit(),
                        "source.frequency_hz": QLineEdit(), "source.lower": QLineEdit(), "source.upper": QLineEdit()}
@@ -56,16 +67,23 @@ class PointEditor(QGroupBox):
         bind(self.fields['address'], 'setToolTip', tr('Zero-based register address; the selected data type determines register width.'))
         for data_type in NUMERIC_TYPES:
             self.fields["data_type"].addItem(data_type, data_type)
-        self.fields["byte_order"].addItem("", None)
         for order in ORDERS:
-            self.fields["byte_order"].addItem(order, order)
+            self.fields["byte_order"].addItem(order.removeprefix("B"), order)
         bind(self.fields['byte_order'], 'setToolTip', tr('Only byte orders matching this type are shown. B12 is the default for 16-bit points.'))
         bind(self.fields['byte_order'], 'setPlaceholderText', tr('Select a compatible byte order'))
+        for operation in OPERATIONS:
+            add_item(self.fields['operation'], CHOICE_LABELS[operation], operation)
+        add_item(self.fields['area'], tr('Holding registers'), 'holding')
+        add_item(self.fields['area'], tr('Input registers'), 'input')
+        bind(self.fields['area'], 'setToolTip', SLAVE_AREAS_HELP)
+        self.fields['readback_every'].setRange(0, 1000000)
+        bind(self.fields['readback_every'], 'setToolTip', tr('FC03 readback every N cycles; 0 disables it for this point.'))
         add_item(self.fields['source.kind'], tr('Constant'), 'constant')
         add_item(self.fields['source.kind'], tr('Sine wave'), 'sine')
         add_item(self.fields['source.kind'], tr('Triangle wave'), 'triangle')
         bind(self.fields['source.kind'], 'setPlaceholderText', tr('Select a compatible data source'))
-        for key, caption in (("name", tr('Name')), ("address", tr('Start address')),
+        for key, caption in (("name", tr('Name')), ("area", tr('Register area')), ("operation", tr('Operation')),
+                             ("readback_every", tr('Readback every N cycles')), ("address", tr('Start address')),
                              ("data_type", tr('Data type')), ("byte_order", tr('Byte order')), ("source.kind", tr('Data source')),
                              ("source.value", tr('Value')), ("source.amplitude", tr('Amplitude')),
                              ("source.frequency_hz", tr('Frequency (Hz)')), ("source.lower", tr('Lower bound')),
@@ -82,7 +100,11 @@ class PointEditor(QGroupBox):
         self.selection_note.setWordWrap(True)
         self.selection_note.setProperty("tone", "error")
         layout.addWidget(self.selection_note)
-        self.enabled.toggled.connect(self._changed)
+        self.enabled.toggled.connect(self._enabled_changed)
+        self.expand.toggled.connect(self._changed)
+        self.fields["operation"].currentIndexChanged.connect(self._changed)
+        self.fields["area"].currentIndexChanged.connect(self._changed)
+        self.fields["readback_every"].valueChanged.connect(self._changed)
         self.fields["address"].valueChanged.connect(self._changed)
         self.fields["source.kind"].currentIndexChanged.connect(self._changed)
         self.fields["data_type"].currentIndexChanged.connect(self._changed)
@@ -96,24 +118,44 @@ class PointEditor(QGroupBox):
         active = self.enabled.isChecked()
         specification = numeric_type(self.current_data_type())
         orders = self.fields["byte_order"]
-        with QSignalBlocker(orders):
-            orders.setItemText(orders.findData(None), str(tr('Follow global ({order})').format(order=self._default_order)))
-        orders.filter_values(specification.orders if specification.registers == 1 else (None, *specification.orders),
-                             aliases={None: "B12"} if specification.registers == 1 else None)
+        supported_type = self.fields['data_type'].currentIndex() >= 0
+        if supported_type and (orders.draft_value() is None or (self._last_type != self.current_data_type()
+                                          and orders.draft_value() not in specification.orders)):
+            orders.set_draft_value(specification.orders[0])
+        self._last_type = self.current_data_type()
+        orders.filter_values(specification.orders)
+        self._usage = ParameterUsage(self._usage.mode,
+            self.fields['operation'].draft_value() or 'write-multiple', self.fields['readback_every'].value())
+        self._source_used = self._usage.source
+        allowed = tuple(operation for operation, function in OPERATIONS.items()
+                        if (not getattr(self, '_readonly', False) or function in (3, 4))
+                        and (specification.registers == 1 or function != 6))
+        self.fields['operation'].filter_values(allowed)
+        self.form.setRowVisible(self.fields['operation'], self._usage.master)
+        self.form.setRowVisible(self.fields['area'], not self._usage.master)
+        self.form.setRowVisible(self.fields['readback_every'], self._usage.writing)
         # 不兼容的旧选择保留在草稿中，界面留空并即时解释，避免静默替换。
         source_kind = self.fields["source.kind"]
         source_kind.filter_values(tuple(key for key in SOURCE_FIELDS if key != "sine" or not specification.integer))
-        self.body.setVisible(active)
+        self.body.setVisible(active and self.expand.isChecked())
+        self.expand.setVisible(active)
         kind = source_kind.currentData()
         sine = kind == "sine"
-        self._source_row("source.kind", active and self._source_used)
-        bind(source_kind, 'setToolTip', self._source_tip)
-        bind(self.form.labelForField(self.fields['source.value']), 'setText', tr('Offset') if sine else tr('Value'))
+        holding = not self._usage.master and self.fields['area'].currentData() == 'holding'
+        effective_kind = 'constant' if holding else kind
+        self._source_row("source.kind", active and self._source_used and not holding)
+        area_help = HOLDING_AREA_HELP if holding else INPUT_AREA_HELP
+        bind(source_kind, 'setToolTip', self._source_tip if self._usage.master else area_help)
+        bind(self.fields['source.value'], 'setToolTip', HOLDING_INITIAL_HELP if holding else '')
+        bind(self.form.labelForField(self.fields['source.value']), 'setText', tr('Initial value') if holding else tr('Offset') if sine else tr('Value'))
         for key in ("value", "amplitude", "frequency_hz", "lower", "upper"):
-            self._source_row("source." + key, active and self._source_used and key in SOURCE_FIELDS.get(kind, ()))
-        bind(self.source_note, 'setText', tr('Values come from the remote slave; no local source is used.') if not self._source_used
-             else tr('Fixed step 1 per data update; starts at the lower bound and reverses after reaching each bound.') if kind == "triangle" else "")
-        self.source_note.setVisible(active and (not self._source_used or kind == "triangle"))
+            self._source_row("source." + key, active and self._source_used and key in SOURCE_FIELDS.get(effective_kind, ()))
+        note = (HOLDING_INITIAL_HELP if holding else INPUT_AREA_HELP if not self._usage.master
+                else tr('Values come from the remote slave; no local source is used.') if not self._source_used else '')
+        if self._source_used and not holding and kind == 'triangle':
+            note += ('\n' if note else '') + tr('Fixed step 1 per data update; starts at the lower bound and reverses after reaching each bound.')
+        bind(self.source_note, 'setText', note)
+        self.source_note.setVisible(active and self.expand.isChecked() and bool(note))
         issues = self.selection_issues()
         message = issues[0] if issues else ""
         for issue in issues[1:]:
@@ -133,33 +175,33 @@ class PointEditor(QGroupBox):
         if not self.enabled.isChecked():
             return []
         issues = []
+        if self.fields['data_type'].currentIndex() < 0:
+            issues.append(tr('Choose one of: {choices}.').format(choices=', '.join(NUMERIC_TYPES)))
         if not self.fields["byte_order"].compatible():
             issues.append(tr('Previous byte order is incompatible; select a byte order for this type.'))
-        if self._source_used and not self.fields["source.kind"].compatible():
+        if self._usage.master and not self.fields['operation'].compatible():
+            issues.append(tr('Select an operation compatible with access and data width.'))
+        holding = not self._usage.master and self.fields['area'].currentData() == 'holding'
+        if self._source_used and not holding and not self.fields["source.kind"].compatible():
             issues.append(tr('Previous data source is incompatible; select a data source for this type.'))
         return issues
 
-    def set_default_order(self, order):
-        self._default_order = order
+    def _enabled_changed(self, enabled):
+        if enabled and not self._loading:
+            self.expand.setChecked(True)
         self._changed()
 
     def retranslate_ui(self):
         retranslate_tree(self)
-        orders = self.fields["byte_order"]
-        with QSignalBlocker(orders):
-            orders.setItemText(orders.findData(None), str(tr('Follow global ({order})').format(order=self._default_order)))
+        self.set_conflict(False)
 
-    def set_usage(self, usage):
-        self._source_used = usage.source
-        if usage.master:
-            self._source_tip = tr('Generate values for the master to write to remote holding registers.')
-        elif usage.mode == "rtu-slave":
-            self._source_tip = tr('The source updates input registers continuously and initializes holding registers once; later source updates leave holding registers unchanged.')
-        else:
-            self._source_tip = tr('Update the register snapshot read by TCP clients.')
-        caption = (tr('Write start address') if usage.writing else tr('Read start address')) if usage.master else tr('Local start address')
+    def set_usage(self, usage, readonly=False):
+        self._usage = usage
+        self._readonly = readonly
+        self._source_tip = (tr('Generate values for the master to write to remote holding registers.') if usage.master else
+                            tr('Input values follow the source; holding values initialize once.'))
+        caption = tr('Remote start address') if usage.master else tr('Local start address')
         bind(self.form.labelForField(self.fields['address']), 'setText', caption)
-        bind(self.fields['address'], 'setAccessibleName', tr('Point {p0} · {p1}').format(p0=self.index + 1, p1=caption))
         self._changed()
 
     def set_conflict(self, conflict):
@@ -168,6 +210,10 @@ class PointEditor(QGroupBox):
         overflow = self.enabled.isChecked() and address + numeric_type(data_type).registers > 65536
         text = (tr('Registers {p0}–{p1} · {data_type}').format(p0=address, p1=address + numeric_type(data_type).registers - 1, data_type=data_type)
                 if self.enabled.isChecked() else tr('Disabled · No registers occupied'))
+        if self.enabled.isChecked():
+            context = (CHOICE_LABELS.get(self.fields['operation'].draft_value(), '') if self._usage.master
+                       else tr('Holding registers') if self.fields['area'].currentData() == 'holding' else tr('Input registers'))
+            text = context + ' · ' + text
         bind(self.range_label, 'setText', text + (tr(' · Address overlap') if conflict else '')
              + (tr(' · Address range exceeds 65535') if overflow else ''))
         self.range_label.setProperty("tone", "error" if conflict or overflow or self.selection_issues() else "idle")
@@ -182,7 +228,11 @@ class PointEditor(QGroupBox):
             valid_address = isinstance(point.address, int) and not isinstance(point.address, bool)
             self.fields["address"].setValue(point.address if valid_address else 0)
             self.fields["data_type"].setCurrentIndex(self.fields["data_type"].findData(point.data_type))
-            self.fields["byte_order"].set_draft_value(point.byte_order)
+            self._last_type = point.data_type
+            self.fields["byte_order"].set_draft_value(point.byte_order or (point.encoding_order() if point.enabled else "B1234"))
+            self.fields['operation'].set_draft_value(point.operation or 'write-multiple')
+            self.fields['area'].setCurrentIndex(self.fields['area'].findData(point.area))
+            self.fields['readback_every'].setValue(point.readback_every or 0)
             kind = self.fields["source.kind"]
             kind.set_draft_value(point.source.kind)
             for key in ("value", "amplitude", "frequency_hz", "lower", "upper"):
@@ -209,6 +259,11 @@ class PointEditor(QGroupBox):
         if not active and not (isinstance(self._point.address, int) and not isinstance(self._point.address, bool)
                                and 0 <= self._point.address <= 65535):
             data["address"] = self._point.address
+        data['operation'] = self.fields['operation'].draft_value()
+        data['area'] = ('input' if data['operation'] == 'read-input' else 'holding') if self._usage.master else self.fields['area'].currentData()
+        data['readback_every'] = self.fields['readback_every'].value()
+        if active and not self._usage.master and data['area'] == 'holding':
+            kind = 'constant'
         data["source"]["kind"] = kind
         for key, caption in (("value", tr('Value / offset')), ("amplitude", tr('Amplitude')), ("frequency_hz", tr('Frequency (Hz)')),
                              ("lower", tr('Lower bound')), ("upper", tr('Upper bound'))):

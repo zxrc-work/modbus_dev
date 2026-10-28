@@ -13,7 +13,7 @@ from modbus_dev.worker import live_packets
 
 
 def settings():
-    return TaskConfig.from_mapping(dict(mode="rtu-slave", serial=dict(port="TEST")))
+    return TaskConfig.from_mapping(dict(schema_version=4, mode="rtu-slave", serial=dict(port="TEST"), points=[dict(area="input")]))
 
 
 def value_event(at, value, *, direction="tx"):

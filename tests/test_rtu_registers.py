@@ -99,7 +99,7 @@ class RegisterTests(unittest.TestCase):
                 if function in (3, 4):
                     bank.response_submitted(.1)
                 rows = live.snapshot(.1, "running")["rows"]
-                self.assertEqual([row["point"] for row in rows], [0, 1, 2])
+                self.assertEqual([row["point"] for row in rows], [3, 4, 5] if function == 4 else [0, 1, 2])
                 self.assertEqual([row["registers"] for row in rows],
                                  [[0x1111], [0x4000, 0], [0x3333]])
                 self.assertEqual([row["value"] for row in rows], [None, 2., None])
@@ -152,14 +152,15 @@ class OperationTests(unittest.TestCase):
 
     def test_each_operation_builds_correct_requests_and_budgets(self):
         for operation, functions in (("read-holding", [3]), ("read-input", [4]),
-                                     ("write-single", [6, 6]), ("write-multiple", [16])):
-            settings = config("rtu-master", master_operation=operation)
-            requests = cycle_requests(settings, [1.25])
+                                     ("write-single", [6]), ("write-multiple", [16])):
+            settings = config("rtu-master", master_operation=operation,
+                              points=[dict(data_type="uint16" if operation == "write-single" else "float32")])
+            requests = cycle_requests(settings, [1])
             self.assertEqual([r.function for r in requests], functions)
             if functions[0] in (3, 4):
                 self.assertFalse(requests[0].registers)
-        settings = config("rtu-master", master_operation="write-single", readback_every=1)
-        self.assertEqual([r.function for r in cycle_requests(settings, [1.25], True)], [6, 6, 3])
+        settings = config("rtu-master", master_operation="write-single", readback_every=1, points=[dict(data_type="uint16")])
+        self.assertEqual([r.function for r in cycle_requests(settings, [1], True)], [6, 3])
 
     def test_permissions_and_readback_validation(self):
         for operation in ("write-single", "write-multiple"):
@@ -175,7 +176,7 @@ class OperationTests(unittest.TestCase):
 
     def test_fc06_codec_echo_validation(self):
         clock = Clock()
-        settings = config("rtu-master", master_operation="write-single")
+        settings = config("rtu-master", master_operation="write-single", points=[dict(data_type="uint16")])
         request = Request(6, 0, 1, (0x3fa0,))
         class EchoPeer(Peer):
             def write(self, data):

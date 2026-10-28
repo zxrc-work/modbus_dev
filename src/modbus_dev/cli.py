@@ -8,7 +8,7 @@ import threading
 from . import __version__
 from .domain.config import load_config
 from .domain.events import ConfigurationError
-from .domain.wire import minimum_cycle_ms
+from .domain.wire import minimum_cycle_ms, cycle_budget
 
 
 def main(argv=None):
@@ -17,7 +17,7 @@ def main(argv=None):
     commands = parser.add_subparsers(dest="command", required=True)
     validate = commands.add_parser("validate", help="validate task configuration without opening a device")
     validate.add_argument("config")
-    run = commands.add_parser("run", help="run one RTU master or read-only RTU/TCP slave session (constant/sine/triangle)")
+    run = commands.add_parser("run", help="run one RTU master or independent-bank RTU/TCP slave session (constant/sine/triangle)")
     run.add_argument("config")
     run.add_argument("--output", required=True, help="new result directory; existing directories are refused")
     commands.add_parser("ports", help="list serial ports without opening them")
@@ -71,13 +71,18 @@ def main(argv=None):
                       period_ms=config.period_ms, configuration_only=True)
         if config.mode == "rtu-master":
             from .application.timing import SCHEDULE_LATE_BASIS
-            minimum = minimum_cycle_ms(config)
+            budget = cycle_budget(config)
+            minimum = budget.transaction_ms
             result.update(schedule_tolerance_percent=config.schedule_tolerance_percent,
                           schedule_tolerance_ms=config.schedule_tolerance_ms,
                           schedule_late_basis=SCHEDULE_LATE_BASIS,
                           cycle_interval_limit_ms=config.cycle_interval_limit_ms,
                           minimum_cycle_ms=minimum, remaining_processing_budget_ms=config.timeout_ms - minimum,
-                          gap_ms=config.serial.gap_ms)
+                          gap_ms=config.serial.gap_ms, request_count=budget.transactions,
+                          line_ms=budget.line_ms, workflow_reserve_ms=budget.reserve_ms,
+                          minimum_period_ms=budget.minimum_period_ms,
+                          warning_period_ms=budget.warning_period_ms,
+                          budget_status=budget.level(config.period_ms))
         print(json.dumps(result, ensure_ascii=False))
         return 0
     except (ConfigurationError, OSError, ValueError, ImportError) as error:

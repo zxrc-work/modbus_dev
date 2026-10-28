@@ -74,7 +74,7 @@ from modbus_dev.gui import Workbench, create_application
 from modbus_dev.domain.config import TaskConfig
 app = create_application(language="zh_CN")
 window = Workbench(remember_settings=False)
-window.apply_config(TaskConfig.from_mapping(dict(mode='rtu-slave',
+window.apply_config(TaskConfig.from_mapping(dict(schema_version=4, mode='rtu-slave',
     serial=dict(port='TEST', baud=115200), duration_s=0)))
 window.show()
 window.monitor_tabs.setCurrentIndex(1)
@@ -135,8 +135,8 @@ window.apply_config(TaskConfig.from_mapping(dict(mode='rtu-master', access_mode=
     master_operation='read-input', serial=dict(port='TEST', baud=115200), duration_s=0)))
 window.show()
 app.processEvents()
-assert window.configuration().master_operation == 'read-input'
-operation = window.fields['master_operation']
+assert window.configuration().point_usage(window.configuration().points[0]).operation == 'read-input'
+operation = window.point_editors[0].fields['operation']
 assert not operation.model().item(operation.findData('write-single')).isEnabled()
 panel = window.live_panel
 now = time.monotonic()

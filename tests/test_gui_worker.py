@@ -263,17 +263,16 @@ class GuiTests(unittest.TestCase):
     def test_pages_separate_connection_data_and_other_settings(self):
         self.assertEqual([self.window.config_tabs.tabText(i) for i in range(3)],
                          ["连接与时序", "数据设置", "其他设置"])
-        expected = {"period_ms": 0, "duration_s": 0, "timeout_ms": 0, "readback_every": 0,
-                    "byte_order": 1, "logging.max_files": 2}
+        expected = {"period_ms": 0, "duration_s": 0, "timeout_ms": 0, "logging.max_files": 2}
         for key, tab in expected.items():
             self.assertTrue(self.window.config_tabs.widget(tab).isAncestorOf(self.window.fields[key]))
         self.assertNotIn("addresses", self.window.fields)
-        self.assertEqual(len(self.window.point_editors), 4)
+        self.assertEqual(len(self.window.point_editors), 8)
         for editor in self.window.point_editors:
             self.assertTrue(self.window.config_tabs.widget(1).isAncestorOf(editor))
 
     def test_point_settings_roundtrip_disabled_slots_and_conflict_feedback(self):
-        config = TaskConfig.from_mapping(dict(mode="tcp-slave", points=[
+        config = TaskConfig.from_mapping(dict(schema_version=4, mode="tcp-slave", points=[
             dict(name="温度", address=8, source=dict(value=12.5)),
             dict(enabled=False, name="预留", address=8, source=dict(kind="sine", frequency_hz=1)),
             dict(name="压力", address=0, source=dict(kind="sine", value=5, amplitude=2, frequency_hz=.5)),
@@ -297,23 +296,23 @@ class GuiTests(unittest.TestCase):
             self.window.configuration()
 
     def test_independent_point_values_reach_actual_worker(self):
-        self.window.apply_config(TaskConfig.from_mapping(dict(mode="tcp-slave", duration_s=0,
+        self.window.apply_config(TaskConfig.from_mapping(dict(schema_version=4, mode="tcp-slave", duration_s=0,
             port=available_port(), points=[dict(address=2, source=dict(value=-3.5)),
                                           dict(address=0, source=dict(value=12.5))])))
         self.window.start()
         self.wait_for(lambda: self.window.status.text() == "运行中")
         with socket.create_connection(("127.0.0.1", int(self.window.text("port"))), timeout=1) as peer:
-            peer.sendall(bytes.fromhex("000700000006010300000004"))
+            peer.sendall(bytes.fromhex("000700000006010400000004"))
             response = b""
             while len(response) < 17:
                 chunk = peer.recv(17 - len(response))
                 self.assertTrue(chunk)
                 response += chunk
-        self.assertEqual(response.hex(), "00070000000b01030841480000c0600000")
+        self.assertEqual(response.hex(), "00070000000b01040841480000c0600000")
         self.window.stop()
         self.wait_for(lambda: self.window.temporary is None)
         snapshot = json.loads((self.window.last_output / "config.json").read_text(encoding="utf-8"))
-        self.assertEqual(snapshot["schema_version"], 3)
+        self.assertEqual(snapshot["schema_version"], 4)
         self.assertEqual([p["source"]["value"] for p in snapshot["points"][:2]], [-3.5, 12.5])
 
     def test_address_spinbox_and_disabled_point_parameters(self):
@@ -339,7 +338,7 @@ class GuiTests(unittest.TestCase):
         self.assertEqual(self.window.configuration().enabled_points[0].source.value, 23.75)
 
     def test_disabled_unsupported_source_is_preserved_until_enabled(self):
-        config = TaskConfig.from_mapping(dict(mode="tcp-slave", points=[dict(address=0),
+        config = TaskConfig.from_mapping(dict(schema_version=4, mode="tcp-slave", points=[dict(address=0),
             dict(enabled=False, address=2, source=dict(kind="dyn", path="reserved.dyn"))]))
         self.window.apply_config(config)
         self.assertEqual(self.window.configuration(), config)
@@ -352,11 +351,11 @@ class GuiTests(unittest.TestCase):
         self.wait_for(lambda: self.window.status.text() == "运行中")
         self.assertFalse(self.window.editor.isEnabled())
         with socket.create_connection(("127.0.0.1", int(self.window.text("port"))), timeout=1) as peer:
-            peer.sendall(bytes.fromhex("000700000006010300000002"))
+            peer.sendall(bytes.fromhex("000700000006010400000002"))
             response = b""
             while len(response) < 13:
                 response += peer.recv(13 - len(response))
-            self.assertEqual(response.hex(), "00070000000701030400000000")
+            self.assertEqual(response.hex(), "00070000000701040400000000")
         self.window.stop()
         self.wait_for(lambda: self.window.temporary is None)
         self.assertEqual(self.window.result["exit_code"], 130)

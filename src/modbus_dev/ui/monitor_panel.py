@@ -1,4 +1,4 @@
-"""Session controls, logs, metrics and live results presentation."""
+"""展示会话控制、实际通信值、日志和统计，模式说明按逐点模型生成。"""
 from .i18n import tr, bind, make_button, add_tab, table_item, retranslate_tree
 import json
 from PySide6.QtCore import Signal, Qt
@@ -39,7 +39,7 @@ class MonitorPanel(QScrollArea):
         layout.setSpacing(METRICS.page_spacing)
         control, controls = card()
         heading = QHBoxLayout()
-        self.connection_title = label(tr('TCP read-only slave'), "section")
+        self.connection_title = label(tr('TCP slave'), "section")
         heading.addWidget(self.connection_title)
         heading.addStretch()
         self.status = label(tr('Ready · Not started'))
@@ -225,13 +225,11 @@ class MonitorPanel(QScrollArea):
     def update_hint(self, usage, readonly):
         mode = usage.mode
         if mode == "rtu-master":
-            text = (tr('Generate local values and write them to the remote holding registers; optionally read them back with FC03.') if usage.writing else
-                    tr('Send read requests and receive remote register values; no local write values are generated.'))
-        elif mode == "rtu-slave":
-            text = (tr('Read-only slave: the source updates input registers and initializes holding registers; master writes are rejected.') if readonly else
-                    tr('Read/write slave: the source updates input registers; initialized holding registers retain master writes.'))
+            text = tr('Each point runs its configured read or write operation; optional write readback uses FC03. All points share one cycle.')
         else:
-            text = tr('TCP serves read-only data; TCP writes are not supported.')
+            text = tr('Holding stores values for master reads and, when read/write access is enabled, retains master writes. Input values are generated locally for master reads only.')
+            if readonly:
+                text += tr('\nCurrently read-only: master writes are rejected.')
         bind(self.hint, 'setText', text)
         self.hint.setProperty("writing", usage.writing)
         refresh_style(self.hint)

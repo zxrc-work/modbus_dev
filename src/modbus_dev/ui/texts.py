@@ -1,7 +1,7 @@
 """将稳定的协议键映射为界面文案，供配置与监视组件共用。"""
 from .i18n import tr
 CHOICE_LABELS = {
-    "tcp-slave": tr('TCP read-only slave'), "rtu-slave": tr('RTU slave'), "rtu-master": tr('RTU master'),
+    "tcp-slave": tr('TCP slave'), "rtu-slave": tr('RTU slave'), "rtu-master": tr('RTU master'),
     "continuous": tr('Continuous'), "strict": tr('Strict'), "constant": tr('Constant'), "sine": tr('Sine wave'),
     "triangle": tr('Triangle wave'),
     "read-only": tr('Read-only'), "read-write": tr('Read/write'),
@@ -21,3 +21,12 @@ COUNTER_LABELS = {
 SCHEDULE_LATE_HELP = (tr('Count adjacent cycle-first send intervals only when they exceed the period plus tolerance; equality and the first send are excluded. For a 100 ms period with 10% tolerance, count intervals above 110 ms. Groups and readbacks within one cycle are not counted again. Planned offsets remain in the detailed logs and session summary.'))
 VALID_REPLY_HELP = tr('Count replies accepted within the transaction budget after frame and request-field checks, including uncertain correlations. This does not establish unique per-request correlation or device source quality.')
 METRIC_HELP = {"schedule_late": SCHEDULE_LATE_HELP, "valid_ack": VALID_REPLY_HELP, "valid_read": VALID_REPLY_HELP}
+
+# 配置页与逐点编辑共用用途说明，先说明数据由谁生成、由谁读写。
+HOLDING_AREA_HELP = tr('Holding: stores values for the master to read with FC03. With read/write access enabled, accepts and retains master writes via FC06/16.')
+INPUT_AREA_HELP = tr('Input: the local source generates and updates values for the master to read with FC04. The master cannot write them.')
+SLAVE_AREAS_HELP = (HOLDING_AREA_HELP + '\n' + INPUT_AREA_HELP + '\n'
+                   + tr('Each point belongs to one register area. The two areas are independent, even at the same address.'))
+HOLDING_INITIAL_HELP = tr('Set only when the session starts. Later master writes are retained; the input register update period does not refresh this value.')
+INPUT_PERIOD_HELP = tr('20–60000 ms. All enabled input-register points share this local update period. It does not update holding registers or control how often the master reads.')
+MASTER_PERIOD_HELP = tr('20–60000 ms. Executes one round of configured point reads and writes per cycle. The minimum depends on the actual requests and includes one 10 ms workflow reserve per cycle.')

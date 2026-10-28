@@ -45,12 +45,14 @@ class DuplexTests(unittest.TestCase):
                 common = dict(schema_version=2, serial=dict(baud=115200), access_mode="read-write",
                               unit=1, period_ms=100, timeout_ms=80, points=[dict(address=0,
                               name="压力", source=dict(value=12.5))])
+                if operation == 'write-single' and not points:
+                    common['points'] = [dict(address=0, data_type='uint16', source=dict(value=12))]
                 slave = dict(common, mode="rtu-slave", duration_s=0,
                              serial=dict(port=ports[int(reverse)], baud=115200))
                 master = dict(common, mode="rtu-master", duration_s=.4, master_operation=operation,
                               serial=dict(port=ports[1 - int(reverse)], baud=115200),
                               readback_every=int(operation.startswith("write")),
-                              points=[dict(address=0, source=dict(value=1.25))])
+                              points=[dict(address=0, data_type="uint16", source=dict(value=1))] if operation == "write-single" else [dict(address=0, source=dict(value=1.25))])
                 if points is not None:
                     slave["points"] = master["points"] = points
                 for name, config in (("slave", slave), ("master", master)):
@@ -124,6 +126,6 @@ class DuplexTests(unittest.TestCase):
                   dict(address=1, data_type="uint32", byte_order="B3412", source=dict(value=4294967295)),
                   dict(address=3, data_type="float32", byte_order="B4321", source=dict(value=12.5)),
                   dict(address=5, data_type="uint16", byte_order="BA", source=dict(value=4660))]
-        for index, operation in enumerate(("read-input", "write-multiple", "write-single")):
+        for index, operation in enumerate(("read-input", "write-multiple")):
             with self.subTest(operation=operation):
                 self.exercise(operation, bool(index % 2), points=points)

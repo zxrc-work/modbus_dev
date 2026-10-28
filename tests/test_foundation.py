@@ -60,7 +60,7 @@ class ConfigTests(unittest.TestCase):
         self.assertAlmostEqual(minimum_cycle_ms(changed) / minimum_cycle_ms(one), 1.2)
 
     def test_unknown_fields_versions_and_bad_types_rejected(self):
-        cases = [mapping(timeuot_ms=80), mapping(schema_version=4), mapping(unit=True),
+        cases = [mapping(timeuot_ms=80), mapping(schema_version=5), mapping(unit=True),
                  mapping(unit="1"), mapping(addresses=[True]), mapping(addresses=[0, 1]),
                  mapping(duration_s=float("nan")), mapping(source=dict(amplitdue=1)),
                  mapping(source=dict(kind="dyn", channels="channel-1")), mapping(mode=[])]

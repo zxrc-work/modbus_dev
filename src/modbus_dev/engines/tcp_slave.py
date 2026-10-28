@@ -1,5 +1,6 @@
-"""有界 TCP 只读传输；单事件循环维护客户端和快照，协议编码复用 PyModbus。"""
+"""有界 TCP 传输；单事件循环维护客户端，并复用独立寄存器区。"""
 from dataclasses import dataclass, field
+from collections import deque
 import os
 import selectors
 import socket
@@ -7,7 +8,7 @@ import socket
 from pymodbus.framer.socket import FramerSocket
 from pymodbus.pdu.decoders import DecodePDU
 
-from .read_only import ReadOnlyRegisters
+from .register_banks import RegisterBanks
 
 
 @dataclass
@@ -15,9 +16,12 @@ class Client:
     incoming: bytearray = field(default_factory=bytearray)
     outgoing: bytearray = field(default_factory=bytearray)
     pending_since: float | None = None
+    submitted_bytes: int = 0
+    queued_bytes: int = 0
+    values_pending: deque = field(default_factory=deque)
 
 
-class TcpSlaveEngine(ReadOnlyRegisters):
+class TcpSlaveEngine(RegisterBanks):
     MAX_CLIENTS = 16
     MAX_BUFFER = 4096
 
@@ -88,7 +92,13 @@ class TcpSlaveEngine(ReadOnlyRegisters):
                         _, unit, tid, pdu = self.framer.decode(frame)
                         response = self.response(unit, pdu)
                         if response is not None:
-                            state.outgoing.extend(self.framer.encode(response, unit, tid))
+                            encoded = self.framer.encode(response, unit, tid)
+                            state.outgoing.extend(encoded)
+                            # 将数值快照绑定到响应结束的字节边界，排队本身不算实际 TX。
+                            state.queued_bytes += len(encoded)
+                            if self._pending_values is not None:
+                                state.values_pending.append((state.queued_bytes, self._pending_values))
+                            self._pending_values = None
                             if len(state.outgoing) > self.MAX_BUFFER:
                                 raise ValueError("TCP output buffer limit")
                     if not state.incoming:
@@ -99,6 +109,12 @@ class TcpSlaveEngine(ReadOnlyRegisters):
                         raise OSError("TCP connection closed during write")
                     self._event("tx", peer=sock.getpeername(), data=bytes(state.outgoing[:sent]).hex())
                     del state.outgoing[:sent]
+                    state.submitted_bytes += sent
+                    # 完整响应交给 socket 后才发布数值，部分发送不能提前报成功。
+                    while state.values_pending and state.values_pending[0][0] <= state.submitted_bytes:
+                        _, values = state.values_pending.popleft()
+                        self._event('register_values', direction='tx', quality='submitted',
+                                    sampled_s=self.control.now(), **values)
                 self.selector.modify(sock, selectors.EVENT_READ |
                                      (selectors.EVENT_WRITE if state.outgoing else 0))
             except BlockingIOError:

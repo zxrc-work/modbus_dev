@@ -27,6 +27,9 @@ TEMPLATES = {
     "no_enabled_points": tr("Enable at least one point"),
     "point_overlap": tr("The register ranges of point {first} and point {second} overlap."),
     "transaction_budget": tr("The timeout must exceed the {minimum:.3f} ms transaction budget and leave {gap:.3f} ms of silence before the next cycle."),
+    "cycle_minimum": tr("Minimum cycle is {minimum} ms for {requests} requests, including the 10 ms workflow reserve. Increase the period, raise the baud rate or reduce requests."),
+    "fc06_width": tr("FC06 writes one 16-bit register. Use FC16 for a 32-bit point."),
+    "holding_initial": tr("Holding registers accept an initial constant only; use input registers for continuous source updates."),
     "duplicate_field": tr("Duplicate configuration field: {field}."),
     "invalid_json": tr("Invalid JSON at line {line}, column {column}."),
 }

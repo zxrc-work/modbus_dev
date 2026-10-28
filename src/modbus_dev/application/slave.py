@@ -1,4 +1,4 @@
-"""从站保留独立源时钟；RTU 保持区与输入区由通信适配器分开管理。"""
+"""从站共用独立数据时钟；TCP 与 RTU 的保持区和输入区分别发布。"""
 import traceback
 
 from ..domain.mapping import point_write_requests
@@ -70,9 +70,14 @@ def run_slave(runner):
                             raise RuntimeError("Strict source update missed a complete period")
                         runner._emit("schedule_skip", "Skipped expired source updates", "WARNING", skipped=missed)
                     values = source.sample(current)
-                    registers = {request.address + i: word
-                                 for request in point_write_requests(runner.config.enabled_points, values, runner.config.byte_order)
-                                 for i, word in enumerate(request.registers)}
+                    registers = {}
+                    pairs = list(zip(runner.config.enabled_points, values))
+                    for area in ("holding", "input"):
+                        selected = [(point, value) for point, value in pairs if point.area == area]
+                        registers[area] = {request.address + i: word
+                            for request in point_write_requests([point for point, _ in selected],
+                                [value for _, value in selected], runner.config.byte_order)
+                            for i, word in enumerate(request.registers)}
                     runner.engine.publish(registers)
                     runner.counters["source_updates"] += 1
                     runner._emit("source_sample", "Register snapshot published", "DEBUG", "source",

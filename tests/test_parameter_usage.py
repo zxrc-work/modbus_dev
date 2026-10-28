@@ -19,6 +19,8 @@ import test_rtu_session
 
 
 def master(operation="read-input", **options):
+    if operation == 'write-single':
+        options.setdefault('points', [dict(data_type='uint16')])
     return TaskConfig.from_mapping(dict(mode="rtu-master", master_operation=operation,
                                        serial=dict(port="TEST", baud=115200), **options))
 
@@ -61,7 +63,7 @@ class ParameterTests(unittest.TestCase):
     def test_inactive_connection_and_master_fields_do_not_block_validation(self):
         check_capabilities(master(host="", port="unused", readback_every="unused", read_function="unused"))
         config = TaskConfig.from_mapping(dict(mode="tcp-slave", serial=dict(port="", baud="unused"),
-            master_operation="unused", access_mode="unused", readback_every="unused",
+            master_operation="unused", access_mode="read-only", readback_every="unused",
             read_function="unused", schedule_tolerance_percent="unused"))
         check_capabilities(config)
         config = TaskConfig.from_mapping(dict(mode="rtu-slave", serial=dict(port="TEST"), host="", port="unused",
@@ -71,7 +73,7 @@ class ParameterTests(unittest.TestCase):
         check_capabilities(master("write-multiple", readback_every=0, read_function="unused"))
 
     def test_constant_and_disabled_sources_skip_unused_parameters(self):
-        config = TaskConfig.from_mapping(dict(mode="rtu-slave", serial=dict(port="TEST"), points=[
+        config = TaskConfig.from_mapping(dict(schema_version=4, mode="rtu-slave", serial=dict(port="TEST"), points=[
             dict(source=dict(kind="constant", value=1.25, amplitude="unused", frequency_hz=-10,
                              channels="unused")),
             dict(enabled=False, address="unused", source=dict(kind="unused", value="unused"))]))
@@ -125,7 +127,7 @@ class ParameterGuiTests(unittest.TestCase):
         self.assertTrue(point.fields["address"].isEnabled())
         for key in ("source.kind", "source.value", "source.amplitude", "source.frequency_hz"):
             self.assertFalse(point.fields[key].isEnabled(), key)
-        self.assertIn("读取", point.form.labelForField(point.fields["address"]).text())
+        self.assertIn("对端", point.form.labelForField(point.fields["address"]).text())
         mode = self.window.fields["mode"]
         mode.setCurrentIndex(mode.findData("rtu-slave"))
         self.window.fields["access_mode"].setCurrentIndex(self.window.fields["access_mode"].findData("read-only"))
@@ -137,12 +139,12 @@ class ParameterGuiTests(unittest.TestCase):
         self.window.apply_config(master("write-multiple", points=[dict(data_type="int16",
             source=dict(kind="triangle", lower=-2, upper=3))]))
         point = self.window.point_editors[0]
-        operation = self.window.fields["master_operation"]
+        operation = self.window.point_editors[0].fields["operation"]
         operation.setCurrentIndex(operation.findData("read-input"))
         for key in ("source.kind", "source.value", "source.amplitude", "source.frequency_hz", "source.lower", "source.upper"):
             self.assertTrue(point.fields[key].isHidden(), key)
         self.assertIn("对端从站", point.source_note.text())
-        self.assertTrue(self.window.fields["readback_every"].isHidden())
+        self.assertTrue(self.window.point_editors[0].fields["readback_every"].isHidden())
         operation.setCurrentIndex(operation.findData("write-multiple"))
         self.assertFalse(point.fields["source.lower"].isHidden())
         self.assertEqual(self.window.configuration().points[0].source.lower, -2)
@@ -165,13 +167,13 @@ class ParameterGuiTests(unittest.TestCase):
 
     def test_readonly_operations_filter_writes_without_losing_original_selection(self):
         self.window.apply_config(master("write-multiple"))
-        access, operation = (self.window.fields[key] for key in ("access_mode", "master_operation"))
+        access, operation = (self.window.fields["access_mode"], self.window.point_editors[0].fields["operation"])
         access.setCurrentIndex(access.findData("read-only"))
         self.assertEqual([operation.itemData(i) for i in range(operation.count()) if not operation.view().isRowHidden(i)],
                          ["read-holding", "read-input"])
         self.assertEqual(operation.currentIndex(), -1)
-        self.assertFalse(self.window.editor.operation_note.isHidden())
-        with self.assertRaises(ConfigurationError):
+        self.assertFalse(self.window.point_editors[0].selection_note.isHidden())
+        with self.assertRaises(ValueError):
             self.window.configuration()
         draft = self.window.editor.capture_draft()
         self.window.editor.restore_draft(draft)
@@ -182,7 +184,7 @@ class ParameterGuiTests(unittest.TestCase):
 
     def test_fixed_readback_is_text_and_unsupported_rts_is_hidden(self):
         self.window.apply_config(master("write-multiple", readback_every=1))
-        self.assertTrue(self.window.fields["read_function"].isHidden())
+        self.assertNotIn("read_function", self.window.fields)
         self.assertFalse(self.window.editor.readback_note.isHidden())
         self.assertIn("FC03", self.window.editor.readback_note.text())
         self.assertEqual(self.window.configuration().read_function, 3)
@@ -191,9 +193,43 @@ class ParameterGuiTests(unittest.TestCase):
 
     def test_tcp_curve_has_no_unusable_selectors(self):
         self.window.apply_config(TaskConfig(mode="tcp-slave"))
-        self.assertEqual(self.window.live_panel.selectors, {})
-        self.assertTrue(self.window.live_panel.plot.isHidden())
-        self.assertIn("TCP 模式暂不提供", self.window.live_panel.curve_note.text())
+        self.assertEqual(set(self.window.live_panel.selectors), {'input:0:tx'})
+        self.assertFalse(self.window.live_panel.plot.isHidden())
+        self.assertIn("实际通信点", self.window.live_panel.curve_note.text())
+
+    def test_slave_register_hint_tracks_permissions_and_does_not_leak_into_tcp(self):
+        self.window.apply_config(TaskConfig.from_mapping(dict(
+            mode="rtu-slave", serial=dict(port="TEST"), access_mode="read-write")))
+        note = self.window.editor.data_note
+        self.assertFalse(note.isHidden())
+        self.assertTrue(note.wordWrap())
+        for text in ("每个测点只配置一个寄存器区", "保持区：保存数值", "FC06/16", "接收并保存主站写入",
+                     "本机按数据源生成并更新数值", "FC04", "主站不能写入", "两区相互独立"):
+            self.assertIn(text, note.text())
+        self.assertNotIn("拒绝主站写入", note.text())
+        # 权限和模式切换复用现有说明，不留下上一种模式的提示。
+        access = self.window.fields["access_mode"]
+        access.setCurrentIndex(access.findData("read-only"))
+        self.assertIn("当前为只读，拒绝主站写入", note.text())
+        access.setCurrentIndex(access.findData("read-write"))
+        self.assertNotIn("拒绝主站写入", note.text())
+        self.window.apply_config(TaskConfig(mode="tcp-slave"))
+        self.assertIn("每个测点只配置一个寄存器区", note.text())
+        self.assertIn("FC06/16", note.text())
+
+    def test_write_hint_explains_why_fc04_cannot_verify_a_write(self):
+        for operation in ("write-single", "write-multiple"):
+            for readback in (0, 1):
+                with self.subTest(operation=operation, readback=readback):
+                    self.window.apply_config(master(operation, readback_every=readback))
+                    note = self.window.editor.readback_note
+                    self.assertFalse(note.isHidden())
+                    self.assertTrue(note.wordWrap())
+                    for text in ("每点独立选择操作", "FC03", "FC04", "独立输入区"):
+                        self.assertIn(text, note.text())
+        for operation in ("read-holding", "read-input"):
+            self.window.apply_config(master(operation))
+            self.assertFalse(self.window.editor.readback_note.isHidden())
 
     def test_invalid_source_draft_is_ignored_for_read_and_restored_for_write(self):
         self.window.apply_config(master("write-multiple"))
@@ -201,15 +237,15 @@ class ParameterGuiTests(unittest.TestCase):
         point.fields["source.value"].setText("unfinished")
         self.window.fields["host"].setText("")
         self.window.fields["port"].setText("unused")
-        self.window.fields["readback_every"].setText("unfinished")
-        operation = self.window.fields["master_operation"]
+        self.window.point_editors[0].fields["readback_every"].setValue(0)
+        operation = self.window.point_editors[0].fields["operation"]
         operation.setCurrentIndex(operation.findData("read-input"))
         config = self.window.configuration()
-        self.assertEqual(config.master_operation, "read-input")
+        self.assertEqual(config.point_usage(config.points[0]).operation, "read-input")
         self.assertEqual(TaskConfig.from_mapping(json.loads(json.dumps(config.to_mapping()))).points[0].source.value,
                          "unfinished")
         self.assertEqual(point.fields["source.value"].text(), "unfinished")
-        self.window.fields["readback_every"].setText("0")
+        self.window.point_editors[0].fields["readback_every"].setValue(0)
         operation.setCurrentIndex(operation.findData("write-multiple"))
         self.assertTrue(point.fields["source.value"].isEnabled())
         with self.assertRaisesRegex(ValueError, "数值"):
@@ -262,9 +298,9 @@ class ParameterGuiTests(unittest.TestCase):
                  (master("write-multiple"), {"holding:0:tx"}),
                  (master("write-multiple", readback_every=1), {"holding:0:tx", "holding:0:rx"}),
                  (TaskConfig.from_mapping(dict(mode="rtu-slave", serial=dict(port="TEST"))),
-                  {"holding:0:tx", "input:0:tx"}),
+                  {"holding:0:tx", "input:1:tx"}),
                  (TaskConfig.from_mapping(dict(mode="rtu-slave", serial=dict(port="TEST"), access_mode="read-write")),
-                  {"holding:0:tx", "holding:0:rx", "input:0:tx"})]
+                  {"holding:0:tx", "holding:0:rx", "input:1:tx"})]
         for config, expected in cases:
             with self.subTest(config=config):
                 self.window.apply_config(config)

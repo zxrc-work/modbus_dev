@@ -42,7 +42,8 @@ class LiveValues:
         stop = start + (len(words) or data.get("count", 0))
         with self.lock:
             for index, point in enumerate(self.config.points):
-                if not point.enabled or stop <= point.address or start >= point.address + point.register_count:
+                if (not point.enabled or self.config.point_area(point) != data["area"]
+                        or stop <= point.address or start >= point.address + point.register_count):
                     continue
                 key = f"{data['area']}:{index}:{data['direction']}"
                 if event.code == "register_confirmation":

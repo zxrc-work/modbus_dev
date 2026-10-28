@@ -35,6 +35,7 @@ class Workbench(QMainWindow):
         self.editor.language.currentIndexChanged.connect(self._language_selected)
         self.language_manager.changed.connect(self.retranslate_ui)
         self.editor.changed.connect(self.update_connection_summary)
+        self.editor.validityChanged.connect(self.refresh_start_availability)
         self.editor.loadRequested.connect(self.load)
         self.editor.saveRequested.connect(self.save)
         self.editor.validateRequested.connect(self.validate)
@@ -49,7 +50,7 @@ class Workbench(QMainWindow):
         self.controller.message.connect(self.logs.appendPlainText)
         self.controller.failed.connect(self.error)
         self.controller.completed.connect(self.session_completed)
-        self.apply_config(TaskConfig(mode="tcp-slave", duration_s=0), persist=False)
+        self.apply_config(TaskConfig(mode="tcp-slave", access_mode="read-only", duration_s=0), persist=False)
         try:
             self.settings.restore()
         except (OSError, ValueError, TypeError, KeyError) as exc:
@@ -158,8 +159,13 @@ class Workbench(QMainWindow):
     def set_running(self, running):
         self.editor.set_busy(running)
         self.monitor.set_running(running)
+        if not running:
+            self.editor.update_budget()
         if not running and self.closing:
             self.close()
+
+    def refresh_start_availability(self, valid):
+        self.start_button.setEnabled(bool(valid) and not self.active())
 
     def text(self, key):
         return self.editor.text(key)

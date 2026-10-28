@@ -16,7 +16,7 @@ import test_rtu_slave
 
 
 def configuration(data_type="int16", lower=0, upper=3, **options):
-    return TaskConfig.from_mapping(dict(mode="tcp-slave", points=[dict(data_type=data_type,
+    return TaskConfig.from_mapping(dict(schema_version=4, mode="tcp-slave", points=[dict(data_type=data_type,
         source=dict(kind="triangle", lower=lower, upper=upper))], **options))
 
 
@@ -63,10 +63,10 @@ class TriangleSourceTests(unittest.TestCase):
             with self.subTest(kind=kind, lower=lower, upper=upper), self.assertRaises(ConfigurationError):
                 configuration(kind, lower, upper)
         with self.assertRaises(ConfigurationError):
-            TaskConfig.from_mapping(dict(mode="tcp-slave", points=[dict(source=dict(kind="triangle", step=1))]))
+            TaskConfig.from_mapping(dict(schema_version=4, mode="tcp-slave", points=[dict(source=dict(kind="triangle", step=1))]))
 
     def test_unused_source_fields_do_not_block_triangle_and_roundtrip(self):
-        settings = TaskConfig.from_mapping(dict(mode="tcp-slave", points=[dict(data_type="int16",
+        settings = TaskConfig.from_mapping(dict(schema_version=4, mode="tcp-slave", points=[dict(data_type="int16",
             source=dict(kind="triangle", lower=-2, upper=1, value="draft", amplitude="draft", frequency_hz="draft"))]))
         self.assertEqual(TaskConfig.from_mapping(json.loads(json.dumps(settings.to_mapping()))), settings)
         self.assertEqual(SyntheticSource(settings).sample(1), (-1,))
@@ -85,7 +85,7 @@ class TriangleSourceTests(unittest.TestCase):
                 self.assertEqual(error.exception.path, "points[0].source." + field)
 
     def test_mixed_sources_keep_point_order_and_register_widths(self):
-        settings = TaskConfig.from_mapping(dict(mode="tcp-slave", points=[
+        settings = TaskConfig.from_mapping(dict(schema_version=4, mode="tcp-slave", points=[
             dict(address=0, data_type="int16", source=dict(kind="triangle", lower=-1, upper=1)),
             dict(address=1, data_type="uint32", source=dict(kind="triangle", lower=4294967293, upper=4294967295)),
             dict(address=3, source=dict(value=12.5)),
@@ -96,7 +96,9 @@ class TriangleSourceTests(unittest.TestCase):
     def test_rtu_write_readback_transmits_actual_triangle_samples(self):
         clock = FakeControl()
         peer = Peer(clock, delay=.005)
-        settings = replace(configuration(), mode="rtu-master", duration_s=.5, readback_every=1,
+        settings = replace(configuration(), mode="rtu-master", access_mode="read-write", duration_s=.5,
+                           points=tuple(replace(point, operation="write-multiple", readback_every=1)
+                                        for point in configuration().points),
                            serial=replace(configuration().serial, port="TEST", baud=115200))
         with tempfile.TemporaryDirectory() as root:
             runner = SessionRunner(settings, Path(root) / "run", control=clock,

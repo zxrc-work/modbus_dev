@@ -5,13 +5,13 @@ from PySide6.QtCore import Signal, Qt
 from PySide6.QtWidgets import QComboBox, QFormLayout, QFrame, QHBoxLayout, QLineEdit, QScrollArea, QTabWidget, QVBoxLayout, QWidget
 from ..application.session import check_capabilities
 from ..domain.config import MAX_POINTS, PointConfig, TaskConfig, point_conflicts
-from ..domain.operations import OPERATIONS
-from ..domain.numeric import numeric_type
+from ..domain.wire import cycle_budget
+from .errors import format_error
 from ..domain.usage import ParameterUsage
 from .point_editor import PointEditor
 from .theme import METRICS
 from .widgets import CheckBox, ComboBox, SerialPortComboBox, label, refresh_style
-from .texts import CHOICE_LABELS, SCHEDULE_LATE_HELP
+from .texts import CHOICE_LABELS, SCHEDULE_LATE_HELP, SLAVE_AREAS_HELP, INPUT_PERIOD_HELP, MASTER_PERIOD_HELP
 from .form_state import FormState, programmatic_changes
 from .context_choices import ContextComboBox
 
@@ -19,6 +19,7 @@ from .context_choices import ContextComboBox
 class ConfigurationPanel(QFrame):
     changed = Signal()
     edited = Signal()
+    validityChanged = Signal(bool)
     loadRequested = Signal()
     saveRequested = Signal()
     validateRequested = Signal()
@@ -27,13 +28,12 @@ class ConfigurationPanel(QFrame):
         super().__init__(parent)
         self.fields = {}
         self._busy = False
-        self.base_config = TaskConfig(mode="tcp-slave", duration_s=0).to_mapping()
+        self._applying = False
+        self.configuration_valid = True
+        self.base_config = TaskConfig(mode="tcp-slave", access_mode="read-only", duration_s=0).to_mapping()
         self._build_ui()
         self.fields["mode"].currentIndexChanged.connect(self.mode_changed)
         self.fields["access_mode"].currentIndexChanged.connect(self.operation_changed)
-        self.fields["master_operation"].currentIndexChanged.connect(self.operation_changed)
-        self.fields["readback_every"].textChanged.connect(self.operation_changed)
-        self.fields["byte_order"].currentIndexChanged.connect(self.default_order_changed)
         for field in self.fields.values():
             signal = field.currentTextChanged if isinstance(field, QComboBox) else field.textChanged
             signal.connect(lambda *_: self.changed.emit())
@@ -42,6 +42,7 @@ class ConfigurationPanel(QFrame):
             draft_fields[f"points.{index}.enabled"] = editor.enabled
             draft_fields.update({f"points.{index}.{key}": field for key, field in editor.fields.items()})
         self.form_state = FormState(draft_fields, self.edited.emit)
+        self.changed.connect(self.update_budget)
 
     def capture_draft(self):
         return dict(schema_version=1, base_config=self.base_config, values=self.form_state.capture())
@@ -52,9 +53,11 @@ class ConfigurationPanel(QFrame):
             raise ValueError("Unsupported saved configuration draft")
         config = TaskConfig.from_mapping(draft["base_config"])
         check_capabilities(config)
-        self.form_state.validate(draft["values"])
+        from ..domain.migration import migrate_draft_values
+        values = migrate_draft_values(draft["base_config"], draft["values"], config)
+        self.form_state.validate(values)
         self.apply_config(config)
-        self.form_state.restore(draft["values"])
+        self.form_state.restore(values)
         self.mode_changed()
         self.update_points_summary()
 
@@ -71,7 +74,7 @@ class ConfigurationPanel(QFrame):
         form_layout.setSpacing(METRICS.section_spacing)
         self.editor.setMinimumWidth(374)
         form_layout.addWidget(label(tr('Session configuration'), "section"))
-        description = label(tr('Configure the connection, shared timing and four independent points.'), "caption")
+        description = label(tr('Configure the connection, shared timing and up to eight independent points.'), "caption")
         description.setWordWrap(True)
         form_layout.addWidget(description)
         self.config_buttons = QWidget()
@@ -130,7 +133,7 @@ class ConfigurationPanel(QFrame):
         connection = page(tr('Connection and timing'))
         group(connection, tr('Communication mode'), [("mode", tr('Mode'), ["tcp-slave", "rtu-slave", "rtu-master"]),
                                       ("policy", tr('Run policy'), ["continuous", "strict"])])
-        self.access_box = group(connection, tr('RTU access'), [("access_mode", tr('Access'), ["read-only", "read-write"])])
+        self.access_box = group(connection, tr('Access permission'), [("access_mode", tr('Access'), ["read-only", "read-write"])])
         self.tcp_box = group(connection, tr('TCP listener'), [("host", tr('Bind address'), None), ("port", tr('Port'), None)])
         self.serial_box = group(connection, tr('Serial connection'), [("serial.port", tr('Serial port'), None),
                                                        ("serial.baud", tr('Baud rate'), ["1200", "2400", "4800", "9600", "19200", "38400",
@@ -142,43 +145,37 @@ class ConfigurationPanel(QFrame):
         group(connection, tr('Device'), [("unit", tr('Unit ID'), None)])
         self.timing_box = group(connection, tr('Session timing'), [("period_ms", tr('Data period (ms)'), None), ("timeout_ms", tr('I/O timeout (ms)'), None),
                                 ("duration_s", tr('Duration (s)'), None)])
-        bind(self.fields['period_ms'], 'setToolTip', tr('Enabled points share one data clock; each point calculates its own value.'))
         bind(self.fields['timeout_ms'], 'setToolTip', tr('Master: whole-cycle transaction budget. Slave: maximum wait for one write, not the polling period.'))
         bind(self.fields['duration_s'], 'setToolTip', tr('0 keeps the session running until stopped manually.'))
         bind(self.fields['duration_s'], 'setPlaceholderText', tr('0 = run continuously'))
-        self.master_box = group(connection, tr('Master operation and scheduling'), [("master_operation", tr('Cycle operation'), list(OPERATIONS)),
-                                                      ("readback_every", tr('Readback every N cycles'), None),
-                                                      ("read_function", tr('Readback function'), ["3", "4"]),
-                                                      ("schedule_tolerance_percent", tr('Scheduling tolerance (%)'), None)])
-        bind(self.fields['readback_every'], 'setToolTip', tr('Read back every N cycles; 0 disables readback.'))
+        self.master_box = group(connection, tr('Master scheduling'), [
+            ("schedule_tolerance_percent", tr('Scheduling tolerance (%)'), None)])
         bind(self.fields['schedule_tolerance_percent'], 'setToolTip', SCHEDULE_LATE_HELP)
-        bind(self.fields['master_operation'], 'setToolTip', tr('Reads send no writes. FC06 writes one register per transaction; 32-bit points are split for raw-register diagnostics, not atomic updates. FC16 writes complete groups.'))
-        bind(self.fields['master_operation'], 'setPlaceholderText', tr('Select a read operation'))
-        self.operation_note = label(tr('The previous write operation is unavailable in read-only mode; select FC03 or FC04.'), "caption")
-        self.operation_note.setWordWrap(True)
-        self.operation_note.setProperty("tone", "error")
-        self.master_box.layout().addRow(self.operation_note)
-        # 写后读回固定使用 FC03；保留旧字段用于草稿兼容，不再展示无效下拉。
-        self.readback_note = label(tr('Write readback uses FC03 (holding registers).'), "caption")
+        self.readback_note = label(tr('Each point selects its own operation. Writes may enable FC03 readback; FC04 reads a separate register area.'), "caption")
         self.readback_note.setWordWrap(True)
         self.master_box.layout().addRow(self.readback_note)
-        self.fields["read_function"].hide()
-        self.master_box.layout().labelForField(self.fields["read_function"]).hide()
+        self.budget_note = label("", "caption")
+        self.budget_note.setObjectName('cycleBudget')
+        self.budget_note.setWordWrap(True)
+        self.timing_box.layout().addRow(self.budget_note)
         connection.addStretch()
 
         data = page(tr('Data'))
-        self.default_order_box = group(data, tr('Default 32-bit encoding'), [("byte_order", tr('Default byte order'), list(numeric_type("float32").orders))])
         self.data_note = label("", "caption")
         self.data_note.setWordWrap(True)
         data.addWidget(self.data_note)
         self.points_status = label("", "caption")
         self.points_status.setWordWrap(True)
         data.addWidget(self.points_status)
-        # 按统一模型创建四个编辑区，不再用逗号字符串表达多个测点。
+        self.data_budget_note = label("", "caption")
+        self.data_budget_note.setWordWrap(True)
+        data.addWidget(self.data_budget_note)
+        # 八点以摘要和可展开编辑区呈现，共用同一表单模型。
         self.point_editors = [PointEditor(i) for i in range(MAX_POINTS)]
         for editor in self.point_editors:
             data.addWidget(editor)
             editor.changed.connect(self.update_points_summary)
+            editor.changed.connect(self.changed)
         data.addStretch()
 
         other = page(tr('Other settings'))
@@ -212,6 +209,7 @@ class ConfigurationPanel(QFrame):
         for editor in self.point_editors:
             editor.retranslate_ui()
         self.update_points_summary()
+        self.update_budget()
 
 
     @programmatic_changes
@@ -220,6 +218,7 @@ class ConfigurationPanel(QFrame):
             return False
         config = TaskConfig.from_mapping(config.to_mapping())
         check_capabilities(config)
+        self._applying = True
         self.base_config = config.to_mapping()
         for key, field in self.fields.items():
             value = self.base_config
@@ -238,11 +237,11 @@ class ConfigurationPanel(QFrame):
         self.rts.setChecked(config.serial.rts_toggle is True)
         for editor, point in zip(self.point_editors, config.points):
             editor.apply_point(point)
+        self._applying = False
         self.mode_changed()
-        self.operation_changed()
 
 
-    def configuration(self):
+    def configuration(self, *, validate=True):
         data = json.loads(json.dumps(self.base_config))
         usage = self.parameter_usage()
         integers = {"unit", "port", "period_ms", "timeout_ms", "readback_every", "read_function",
@@ -278,22 +277,20 @@ class ConfigurationPanel(QFrame):
         if usage.field_active("serial.rts_toggle"):
             data["serial"]["rts_toggle"] = self.rts.isChecked()
         data["points"] = [editor.configuration() for editor in self.point_editors]
-        config = TaskConfig.from_mapping(data)
-        check_capabilities(config)
+        config = TaskConfig.from_mapping(data, validate=validate)
+        if validate:
+            check_capabilities(config)
         return config
 
 
     def parameter_usage(self):
-        try:
-            readback = int(self.text("readback_every"))
-        except ValueError:
-            readback = 0
-        return ParameterUsage(self.text("mode"), self.text("master_operation"), readback)
-
-    def default_order_changed(self, *_):
-        for editor in self.point_editors:
-            editor.set_default_order(self.text("byte_order"))
-
+        from ..domain.usage import ParameterUsage
+        usages = [ParameterUsage(self.text('mode'), editor.fields['operation'].draft_value() or 'write-multiple',
+                                  editor.fields['readback_every'].value())
+                  for editor in self.point_editors if editor.enabled.isChecked()]
+        return ParameterUsage(self.text('mode'),
+                              'write-multiple' if any(usage.writing for usage in usages) else 'read-input',
+                              int(any(usage.readback for usage in usages)))
 
     def mode_changed(self, *_):
         mode = self.text("mode")
@@ -301,8 +298,8 @@ class ConfigurationPanel(QFrame):
         self.tcp_box.setEnabled(mode == "tcp-slave")
         self.serial_box.setVisible(mode != "tcp-slave")
         self.serial_box.setEnabled(mode != "tcp-slave")
-        self.access_box.setVisible(mode != "tcp-slave")
-        self.access_box.setEnabled(mode != "tcp-slave")
+        self.access_box.setVisible(True)
+        self.access_box.setEnabled(True)
         self.master_box.setVisible(mode == "rtu-master")
         self.master_box.setEnabled(mode == "rtu-master")
         self.operation_changed()
@@ -312,51 +309,71 @@ class ConfigurationPanel(QFrame):
     def operation_changed(self, *_):
         mode = self.text("mode")
         readonly = self.text("access_mode") == "read-only"
-        operation = self.fields["master_operation"]
-        operation.filter_values(tuple(key for key, function in OPERATIONS.items()
-                                      if mode != "rtu-master" or not readonly or function in (3, 4)))
-        self.operation_note.setVisible(mode == "rtu-master" and not operation.compatible())
         usage = self.parameter_usage()
         for key, widget in self.fields.items():
             widget.setEnabled(usage.field_active(key))
-        self.fields["read_function"].setEnabled(False)
-        if usage.readback:
-            self.fields["read_function"].setCurrentIndex(self.fields["read_function"].findData("3"))
-        bind(self.fields['read_function'], 'setToolTip', tr('Write readback uses FC03 and applies only when readback is enabled.'))
-        bind(self.fields['readback_every'], 'setToolTip', tr('Read back with FC03 every N cycles; 0 disables readback.') if usage.writing else tr('Read-only operations and slave modes do not perform write readback.'))
-        self.fields["readback_every"].setVisible(usage.writing)
-        self.master_box.layout().labelForField(self.fields["readback_every"]).setVisible(usage.writing)
-        self.readback_note.setVisible(usage.writing)
         self.rts.setEnabled(usage.field_active("serial.rts_toggle"))
         self.rts.setVisible(usage.rts_supported)
         bind(self.rts, 'setToolTip', tr('Supported by Windows serial drivers only; ignored on other platforms.'))
         for editor in self.point_editors:
-            editor.set_usage(usage)
+            editor.set_usage(usage, readonly)
         timing = self.timing_box.layout()
-        bind(timing.labelForField(self.fields['period_ms']), 'setText', tr('Polling period (ms)') if usage.master else tr('Data update period (ms)'))
-        bind(self.fields['period_ms'], 'setAccessibleName', tr('Polling period (ms)') if usage.master else tr('Data update period (ms)'))
+        # 同一参数按角色展示不同含义，不把本机数据更新解释为通信发送频率。
+        period_caption = tr('Communication polling period (ms)') if usage.master else tr('Input register update period (ms)')
+        bind(timing.labelForField(self.fields['period_ms']), 'setText', period_caption)
+        bind(self.fields['period_ms'], 'setAccessibleName', period_caption)
         timeout_caption = tr('Cycle budget (ms)') if usage.master else tr('Reply write timeout (ms)') if usage.serial else tr('Partial request timeout (ms)')
         bind(timing.labelForField(self.fields['timeout_ms']), 'setText', timeout_caption)
         bind(self.fields['timeout_ms'], 'setAccessibleName', timeout_caption)
-        bind(self.fields['period_ms'], 'setToolTip', tr('Send read or write requests on an absolute periodic schedule.') if usage.master else tr('Update the data source on an independent clock, regardless of master polling.'))
+        bind(self.fields['period_ms'], 'setToolTip', MASTER_PERIOD_HELP if usage.master else INPUT_PERIOD_HELP)
         bind(self.fields['timeout_ms'], 'setToolTip', tr('Budget for the entire cycle, including the silent interval and all requests.') if usage.master else tr('Wait for one reply write, capped at 50 ms.') if usage.serial else tr('Fixed deadline for receiving a partial request, at least 1000 ms.'))
         if usage.master:
-            bind(self.data_note, 'setText', tr('Set the remote point addresses and byte order. The local source generates values to write.') if usage.writing else tr('Set the remote point addresses and byte order. Values come from the slave; the local source is unused.'))
-        elif mode == "rtu-slave":
-            bind(self.data_note, 'setText', tr('The source updates input registers continuously and initializes holding registers only at session start. Master writes are retained.'))
+            bind(self.data_note, 'setText', tr('Choose an operation, address, type and byte order for each point. Read values come from the slave; only write points use a local source. Contiguous points with the same operation may share one request.'))
         else:
-            bind(self.data_note, 'setText', tr('The source updates a read-only TCP snapshot for clients to read with FC03/04.'))
+            note = SLAVE_AREAS_HELP
+            if readonly:
+                note += tr('\nCurrently read-only: master writes are rejected.')
+            bind(self.data_note, 'setText', note)
         self.changed.emit()
 
+    def update_budget(self, *_):
+        if self._applying:
+            return
+        tone = 'idle'
+        try:
+            config = self.configuration(validate=False)
+            if config.mode == 'rtu-master':
+                config.serial.validate()
+                budget = cycle_budget(config)
+                tone = budget.level(config.period_ms)
+                message = tr('{points} points → {requests} requests (busiest cycle). Line {line:.3f} ms + workflow 10 ms; minimum {minimum} ms, yellow below {warning} ms. Current {period} ms.').format(
+                    points=len(config.enabled_points), requests=budget.transactions, line=budget.line_ms,
+                    minimum=budget.minimum_period_ms, warning=budget.warning_period_ms, period=config.period_ms)
+            else:
+                message = INPUT_PERIOD_HELP
+            try:
+                check_capabilities(config)
+                valid = True
+            except (ValueError, TypeError) as error:
+                valid, tone = False, 'error'
+                message += ' ' + format_error(error)
+        except (ValueError, TypeError, KeyError, ZeroDivisionError) as error:
+            valid, tone = False, 'error'
+            message = tr('Complete a valid configuration: {detail}').format(detail=str(format_error(error)))
+        for widget in (self.budget_note, self.data_budget_note):
+            bind(widget, 'setText', message)
+            widget.setProperty('tone', tone)
+            refresh_style(widget)
+        self.configuration_valid = valid
+        self.validityChanged.emit(valid)
+
     def update_points_summary(self):
-        # 即时检查使用实际类型宽度，不解析用户尚未输入完毕的数值草稿。
-        shared_order_used = any(editor.enabled.isChecked()
-                                and numeric_type(editor.current_data_type()).registers > 1
-                                and editor.fields["byte_order"].draft_value() is None
-                                for editor in self.point_editors)
-        self.default_order_box.setVisible(shared_order_used)
-        points = [PointConfig(enabled=editor.enabled.isChecked(), address=editor.fields["address"].value(),
-                              data_type=editor.current_data_type())
+        # 地址冲突以区域为边界，主站区域由每点操作推导。
+        master = self.text('mode') == 'rtu-master'
+        points = [PointConfig(enabled=editor.enabled.isChecked(), address=editor.fields['address'].value(),
+                              data_type=editor.current_data_type(), area=(
+                                  'input' if editor.fields['operation'].draft_value() == 'read-input' else 'holding')
+                              if master else editor.fields['area'].currentData())
                   for editor in self.point_editors]
         conflicts = point_conflicts(points)
         overflow = any(point.enabled and point.address + point.register_count > 65536 for point in points)

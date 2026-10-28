@@ -11,12 +11,12 @@ from modbus_dev.sources.synthetic import SyntheticSource
 
 
 def configuration(points, **options):
-    return TaskConfig.from_mapping(dict(mode="tcp-slave", points=points, **options))
+    return TaskConfig.from_mapping(dict(schema_version=4, mode="tcp-slave", points=points, **options))
 
 
 class PointTests(unittest.TestCase):
-    def test_all_four_points_can_be_enabled_with_distinct_values(self):
-        values = (1.25, -3.5, 12.5, 25)
+    def test_all_eight_points_can_be_enabled_with_distinct_values(self):
+        values = (1.25, -3.5, 12.5, 25, 30, 40, 50, 60)
         config = configuration([dict(address=i * 2, source=dict(value=value))
                                 for i, value in enumerate(values)])
         self.assertEqual(len(config.enabled_points), MAX_POINTS)
@@ -26,11 +26,12 @@ class PointTests(unittest.TestCase):
     def test_legacy_config_expands_shared_source_and_saves_only_new_schema(self):
         config = TaskConfig.from_mapping(dict(schema_version=1, mode="tcp-slave", addresses=[6, 0],
                                              source=dict(kind="sine", value=10, amplitude=2, frequency_hz=1)))
-        self.assertEqual(config.schema_version, 3)
+        self.assertEqual(config.schema_version, 4)
         self.assertEqual(len(config.points), MAX_POINTS)
-        self.assertEqual(config.addresses, (6, 0))
+        self.assertEqual(config.addresses, (6, 0, 6, 0))
         self.assertEqual(config.points[0].source, config.points[1].source)
-        self.assertFalse(config.points[2].enabled)
+        self.assertEqual(config.points[2].area, "input")
+        self.assertFalse(config.points[4].enabled)
         data = json.loads(json.dumps(config.to_mapping()))
         self.assertNotIn("addresses", data)
         self.assertNotIn("source", data)
@@ -84,7 +85,7 @@ class PointTests(unittest.TestCase):
     def test_schema_mixing_and_unsupported_versions_are_rejected(self):
         cases = [dict(schema_version=1, points=[{}]), dict(schema_version=2, addresses=[0]),
                  dict(schema_version=2, source={}), dict(points=[{}], source={}),
-                 dict(schema_version=4), dict(period_ms="100"), dict(period_ms=0)]
+                 dict(schema_version=5), dict(period_ms="100"), dict(period_ms=0)]
         for data in cases:
             with self.subTest(data=data), self.assertRaises(ConfigurationError):
                 TaskConfig.from_mapping(dict(mode="tcp-slave", **data))

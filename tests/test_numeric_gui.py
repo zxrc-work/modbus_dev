@@ -46,7 +46,7 @@ class NumericGuiTests(unittest.TestCase):
         self.fail("GUI 工作进程等待超时")
 
     def test_mixed_point_config_roundtrip_and_width_conflicts(self):
-        settings = TaskConfig.from_mapping(dict(mode="tcp-slave", points=[
+        settings = TaskConfig.from_mapping(dict(schema_version=4, mode="tcp-slave", points=[
             dict(address=0, data_type="int16", byte_order="B21", source=dict(value=-123)),
             dict(address=1, data_type="float32", byte_order="B3412", source=dict(value=12.5)),
             dict(address=3, data_type="uint32", source=dict(value=4294967295))]))
@@ -81,15 +81,13 @@ class NumericGuiTests(unittest.TestCase):
         editor.fields["data_type"].setCurrentIndex(editor.fields["data_type"].findData("int16"))
         orders = editor.fields["byte_order"]
         self.assertEqual(self.visible_choices(orders), ["B12", "B21"])
-        self.assertEqual(orders.currentText(), "B12")
+        self.assertEqual(orders.currentText(), "12")
         self.assertEqual(self.visible_choices(editor.fields["source.kind"]), ["constant", "triangle"])
-        self.assertTrue(self.window.editor.default_order_box.isHidden())
+        self.assertNotIn("byte_order", self.window.fields)
         editor.fields["data_type"].setCurrentIndex(editor.fields["data_type"].findData("float32"))
-        self.assertEqual(self.visible_choices(orders), [None, "B1234", "B4321", "B2143", "B3412"])
-        shared = self.window.fields["byte_order"]
-        shared.setCurrentIndex(shared.findData("B4321"))
-        self.assertIn("B4321", orders.currentText())
-        self.assertIn("跟随全局", orders.currentText())
+        self.assertEqual(self.visible_choices(orders), ["B1234", "B4321", "B2143", "B3412"])
+        self.assertEqual(orders.currentData(), 'B1234')
+        self.assertEqual(orders.currentText(), '1234')
 
     def test_triangle_shows_only_bounds_and_fixed_step_note(self):
         editor = self.window.point_editors[0]
@@ -139,8 +137,7 @@ class NumericGuiTests(unittest.TestCase):
         order.setCurrentIndex(order.findData("B3412"))
         kind.setCurrentIndex(kind.findData("int16"))
         self.assertEqual(source.currentIndex(), -1)
-        self.assertEqual(order.currentIndex(), -1)
-        self.assertIn("原字节序不适用", editor.selection_note.text())
+        self.assertEqual(order.currentData(), "B12")
         self.assertIn("原数据源不适用", editor.selection_note.text())
         self.assertIn("不兼容", self.window.points_status.text())
         with self.assertRaises(ValueError):
@@ -150,7 +147,7 @@ class NumericGuiTests(unittest.TestCase):
         self.window.editor.restore_draft(json.loads(json.dumps(draft)))
         self.assertEqual(self.window.editor.capture_draft(), draft)
         kind.setCurrentIndex(kind.findData("float32"))
-        self.assertEqual(order.currentData(), "B3412")
+        self.assertEqual(order.currentData(), "B1234")
         self.assertEqual(source.currentData(), "sine")
         self.window.configuration()
 
@@ -194,7 +191,7 @@ class NumericGuiTests(unittest.TestCase):
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", 0))
             port = probe.getsockname()[1]
-        settings = TaskConfig.from_mapping(dict(mode="tcp-slave", port=port, duration_s=0, points=[
+        settings = TaskConfig.from_mapping(dict(schema_version=4, mode="tcp-slave", port=port, duration_s=0, points=[
             dict(data_type="int16", byte_order="B12", source=dict(kind="triangle", lower=-1, upper=1))]))
         with tempfile.TemporaryDirectory() as root:
             self.window.output.setText(root)
@@ -208,9 +205,9 @@ class NumericGuiTests(unittest.TestCase):
                 with socket.create_connection(("127.0.0.1", port), timeout=1) as peer:
                     deadline = time.monotonic() + 1
                     while len(values) < 3 and time.monotonic() < deadline:
-                        peer.sendall(frame(bytes.fromhex("0300000001")))
+                        peer.sendall(frame(bytes.fromhex("0400000001")))
                         response = receive(peer)
-                        self.assertEqual(response[:9], frame(bytes.fromhex("03020000"))[:9])
+                        self.assertEqual(response[:9], frame(bytes.fromhex("04020000"))[:9])
                         values.add(int.from_bytes(response[9:11], "big", signed=True))
                         self.app.processEvents()
                         time.sleep(.03)
@@ -279,14 +276,14 @@ class NumericGuiTests(unittest.TestCase):
             self.wait_for(lambda: self.window.status.text() == "运行中")
             try:
                 with socket.create_connection(("127.0.0.1", port), timeout=1) as peer:
-                    peer.sendall(frame(bytes.fromhex("0300000005")))
-                    self.assertEqual(receive(peer), frame(bytes.fromhex("030aff85ffffffff00004841")))
+                    peer.sendall(frame(bytes.fromhex("0400000005")))
+                    self.assertEqual(receive(peer), frame(bytes.fromhex("040aff85ffffffff00004841")))
             finally:
                 self.window.stop()
                 self.wait_for(lambda: not self.window.active())
             self.assertEqual(self.window.result["exit_code"], 130)
             saved = json.loads((self.window.last_output / "config.json").read_text())
-            self.assertEqual(saved["schema_version"], 3)
+            self.assertEqual(saved["schema_version"], 4)
             self.assertEqual([p["data_type"] for p in saved["points"][:3]], ["int16", "uint32", "float32"])
 
 

@@ -1,4 +1,4 @@
-"""Configuration lifecycle and language switching through the actual Qt/worker boundary."""
+"""验证配置生命周期，以及实际 Qt/worker 边界上的语言切换。"""
 import importlib.util
 import json
 import os
@@ -213,15 +213,41 @@ class TranslationTests(unittest.TestCase):
 
     def test_english_and_chinese_show_live_default_names_in_current_language(self):
         w = self.window
-        w.apply_config(TaskConfig.from_mapping(dict(mode="rtu-slave", serial=dict(port="TEST"))))
+        w.apply_config(TaskConfig.from_mapping(dict(schema_version=4, mode="rtu-slave", serial=dict(port="TEST"),
+            points=[dict(area="holding"), dict(area="input")])))
         now = time.monotonic()
-        row = dict(key="input:0:tx", point=0, name="测点 1", area="input", address=0, direction="tx",
-                   sampled_s=now, quality="submitted", value=2.5, registers=[0x4020, 0], function=4, sample_id=1)
-        w.live_panel.ingest(dict(state="stopped", rows=[row], stale_after_s=1.))
+        rows = [dict(key=f"{area}:{identity-1}:tx", point=identity-1, name="测点 1", area=area, address=0, direction="tx",
+                     sampled_s=now, quality="submitted", value=2.5, registers=[0x4020, 0],
+                     function=function, sample_id=identity)
+                for identity, (area, function) in enumerate((("holding", 3), ("input", 4)), 1)]
+        w.live_panel.ingest(dict(state="stopped", rows=rows, stale_after_s=1.))
         w.live_panel.refresh_values()
-        self.assertTrue(w.set_language("en"))
-        self.assertEqual(w.live_panel.table.item(0, 0).text(), "Point 1 · Input")
-        self.assertIn("Point 1", next(iter(w.live_panel.selectors.values())).text())
+        for language, name, areas in (("en", "Point 1", ("Holding (FC03)", "Input (FC04)")),
+                                      ("zh_CN", "测点 1", ("保持区（FC03）", "输入区（FC04）"))):
+            with self.subTest(language=language):
+                self.assertTrue(w.set_language(language))
+                for index, area in enumerate(("holding", "input")):
+                    text = f"{name[:-1]}{index+1} · {areas[index]}"
+                    self.assertEqual(w.live_panel.table.item(index, 0).text(), text)
+                    self.assertEqual(w.live_panel.selectors[f"{area}:{index}:tx"].text(), f"{text} · TX")
+
+    def test_register_hints_follow_language_without_changing_configuration(self):
+        w = self.window
+        cases = ((dict(mode="rtu-slave", serial=dict(port="TEST")), "data_note",
+                  "Each point belongs to one register area.", "每个测点只配置一个寄存器区",
+                  "Currently read-only", "当前为只读"),
+                 (dict(mode="rtu-master", serial=dict(port="TEST"), master_operation="write-multiple"),
+                  "readback_note", "FC04 reads a separate register area", "FC04 读取的是独立输入区", "FC03", "FC03"))
+        for settings, field, english, chinese, english_detail, chinese_detail in cases:
+            with self.subTest(mode=settings["mode"]):
+                w.apply_config(TaskConfig.from_mapping(settings))
+                before = w.editor.capture_draft()
+                for language, text, detail in (("en", english, english_detail),
+                                               ("zh_CN", chinese, chinese_detail)):
+                    self.assertTrue(w.set_language(language))
+                    self.assertIn(text, getattr(w.editor, field).text())
+                    self.assertIn(detail, getattr(w.editor, field).text())
+                    self.assertEqual(w.editor.capture_draft(), before)
 
 
 if __name__ == "__main__":

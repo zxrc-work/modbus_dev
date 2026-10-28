@@ -17,7 +17,7 @@ def triangle_value(slot, lower, upper):
 
 class SyntheticSource:
     def __init__(self, config):
-        if any(point.source.kind not in SYNTHETIC_KINDS for point in config.enabled_points):
+        if any(point.source.kind not in SYNTHETIC_KINDS for point in config.enabled_points if config.point_usage(point).source):
             raise ValueError("Offline sources are deferred until after GUI; no device has been opened")
         self.config = config
 
@@ -26,6 +26,9 @@ class SyntheticSource:
         time_s = slot * self.config.period_ms / 1000
         values = []
         for point in self.config.enabled_points:
+            if not self.config.point_usage(point).source:
+                values.append(None)
+                continue
             source = point.source
             value = source.value
             if source.kind == "sine":

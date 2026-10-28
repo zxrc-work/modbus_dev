@@ -1,0 +1,185 @@
+{
+  "schema_version": 4,
+  "mode": "rtu-master",
+  "policy": "continuous",
+  "unit": 1,
+  "points": [
+    {
+      "enabled": true,
+      "name": "温度",
+      "address": 0,
+      "source": {
+        "kind": "constant",
+        "value": 0.0,
+        "amplitude": 0.5,
+        "frequency_hz": 0.8,
+        "lower": 0.0,
+        "upper": 10.0,
+        "path": "",
+        "channels": []
+      },
+      "data_type": "float32",
+      "byte_order": "B1234",
+      "area": "input",
+      "operation": "read-input",
+      "readback_every": 0
+    },
+    {
+      "enabled": true,
+      "name": "设定温度",
+      "address": 0,
+      "source": {
+        "kind": "constant",
+        "value": 25,
+        "amplitude": 0.5,
+        "frequency_hz": 0.8,
+        "lower": 0.0,
+        "upper": 10.0,
+        "path": "",
+        "channels": []
+      },
+      "data_type": "float32",
+      "byte_order": "B1234",
+      "area": "input",
+      "operation": "write-multiple",
+      "readback_every": 1
+    },
+    {
+      "enabled": true,
+      "name": "输入状态",
+      "address": 10,
+      "source": {
+        "kind": "constant",
+        "value": 0.0,
+        "amplitude": 0.5,
+        "frequency_hz": 0.8,
+        "lower": 0.0,
+        "upper": 10.0,
+        "path": "",
+        "channels": []
+      },
+      "data_type": "uint16",
+      "byte_order": "B12",
+      "area": "input",
+      "operation": "read-input",
+      "readback_every": 0
+    },
+    {
+      "enabled": true,
+      "name": "运行参数",
+      "address": 20,
+      "source": {
+        "kind": "constant",
+        "value": 1,
+        "amplitude": 0.5,
+        "frequency_hz": 0.8,
+        "lower": 0.0,
+        "upper": 10.0,
+        "path": "",
+        "channels": []
+      },
+      "data_type": "uint16",
+      "byte_order": "B12",
+      "area": "input",
+      "operation": "write-single",
+      "readback_every": 1
+    },
+    {
+      "enabled": true,
+      "name": "输入计数",
+      "address": 20,
+      "source": {
+        "kind": "constant",
+        "value": 0.0,
+        "amplitude": 0.5,
+        "frequency_hz": 0.8,
+        "lower": 0.0,
+        "upper": 10.0,
+        "path": "",
+        "channels": []
+      },
+      "data_type": "uint32",
+      "byte_order": "B1234",
+      "area": "input",
+      "operation": "read-input",
+      "readback_every": 0
+    },
+    {
+      "enabled": true,
+      "name": "保持浮点",
+      "address": 30,
+      "source": {
+        "kind": "constant",
+        "value": 1.25,
+        "amplitude": 0.5,
+        "frequency_hz": 0.8,
+        "lower": 0.0,
+        "upper": 10.0,
+        "path": "",
+        "channels": []
+      },
+      "data_type": "float32",
+      "byte_order": "B1234",
+      "area": "input",
+      "operation": "write-multiple",
+      "readback_every": 0
+    },
+    {
+      "enabled": true,
+      "name": "输入压力",
+      "address": 30,
+      "source": {
+        "kind": "constant",
+        "value": 0.0,
+        "amplitude": 0.5,
+        "frequency_hz": 0.8,
+        "lower": 0.0,
+        "upper": 10.0,
+        "path": "",
+        "channels": []
+      },
+      "data_type": "float32",
+      "byte_order": "B1234",
+      "area": "input",
+      "operation": "read-input",
+      "readback_every": 0
+    },
+    {
+      "enabled": true,
+      "name": "保持计数",
+      "address": 40,
+      "source": {
+        "kind": "constant",
+        "value": 0.0,
+        "amplitude": 0.5,
+        "frequency_hz": 0.8,
+        "lower": 0.0,
+        "upper": 10.0,
+        "path": "",
+        "channels": []
+      },
+      "data_type": "int32",
+      "byte_order": "B1234",
+      "area": "input",
+      "operation": "read-holding",
+      "readback_every": 0
+    }
+  ],
+  "access_mode": "read-write",
+  "period_ms": 200,
+  "schedule_tolerance_percent": 10.0,
+  "timeout_ms": 150,
+  "duration_s": 0,
+  "serial": {
+    "port": "COM11",
+    "baud": 115200,
+    "parity": "N",
+    "stop_bits": 1,
+    "rts_toggle": false
+  },
+  "host": "127.0.0.1",
+  "port": 1502,
+  "logging": {
+    "max_files": 100
+  }
+}

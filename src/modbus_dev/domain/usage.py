@@ -33,7 +33,9 @@ class ParameterUsage:
     def field_active(self, key):
         if key == "serial.rts_toggle":
             return self.serial and self.rts_supported
-        if key.startswith("serial.") or key == "access_mode":
+        if key == "access_mode":
+            return True
+        if key.startswith("serial."):
             return self.serial
         if key in ("host", "port"):
             return self.mode == "tcp-slave"
