@@ -26,6 +26,8 @@ class DesignMetrics:
     section_size: int = 15
     metric_size: int = 22
     control_height: int = 36
+    point_tab_min_width: int = 32
+    point_tab_height: int = 28
     spacing: int = 8
     section_spacing: int = 12
     page_spacing: int = 16
@@ -86,6 +88,7 @@ def application_stylesheet():
     QLabel[role="section"] {{ font-size: {m.section_size}px; font-weight: 600; }}
     QLabel[role="caption"] {{ color: {c['muted']}; font-size: {m.caption_size}px; }}
     QLabel[role="pointRange"] {{ color: {c['muted']}; font-size: {m.caption_size}px; }}
+    QLabel:disabled {{ color: {c['disabled_ink']}; }}
     QLabel[tone="warning"] {{ color: {c["warning"]}; }}
     QLabel[tone="error"] {{ color: {c['error']}; }}
     QLabel[role="metric"] {{ font-size: {m.metric_size}px; font-weight: 600; }}
@@ -146,10 +149,17 @@ def application_stylesheet():
     QCheckBox:disabled {{ color: {c['disabled_ink']}; }}
     QCheckBox:focus {{ color: {c['accent']}; }}
     QTabWidget::pane {{ border: none; background: {c['panel']}; }}
-    QTabBar::tab {{ background: transparent; color: {c['muted']}; border: none;
+    QTabWidget > QTabBar::tab {{ background: transparent; color: {c['muted']}; border: none;
         border-bottom: 2px solid transparent; padding: 10px 16px; }}
-    QTabBar::tab:selected {{ color: {c['accent']}; border-bottom-color: {c['accent']}; font-weight: 600; }}
-    QTabBar::tab:hover {{ background: {c['hover']}; }}
+    QTabWidget > QTabBar::tab:selected {{ color: {c['accent']}; border-bottom-color: {c['accent']}; font-weight: 600; }}
+    QTabWidget > QTabBar::tab:hover {{ background: {c['hover']}; }}
+    QTabBar#pointTabBar::tab {{ background: transparent; border: none;
+        border-top-left-radius: 4px; border-top-right-radius: 4px;
+        height: {m.point_tab_height}px; padding: 0;
+        font-size: {m.caption_size}px; font-weight: 400; }}
+    QTabBar#pointTabBar::tab:selected {{ background: {c['accent_soft']};
+        font-weight: 600; }}
+    QTabBar#pointTabBar::tab:hover:!selected {{ background: {c['hover']}; }}
     QPlainTextEdit, QTableWidget {{ background: {c['panel']}; border: none;
         selection-background-color: {c['accent_soft']}; selection-color: {c['ink']}; }}
     QPlainTextEdit {{ padding: 12px; font-size: {m.caption_size}px; }}

@@ -1,4 +1,4 @@
-"""渲染三类通信模式的设置页与四测点编辑区，不打开通信端口。"""
+"""渲染三类通信模式的设置页与八测点标签编辑区，不打开通信端口。"""
 import argparse
 import ctypes
 import json
@@ -30,7 +30,7 @@ def main():
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QFontDatabase
-    from modbus_dev.domain.config import TaskConfig, load_config
+    from modbus_dev.domain.config import CONFIG_VERSION, TaskConfig, load_config
     from modbus_dev.gui import Workbench, create_application
     from modbus_dev.gui_theme import ui_font
 
@@ -72,10 +72,14 @@ def main():
                      dict(enabled=False, address=6, name="备用")]))
     for mode in ("tcp-slave", "rtu-slave", "rtu-master"):
         window.apply_config(TaskConfig.from_mapping(dict(
-            mode=mode, serial=dict(port="COM11"), duration_s=0,
+            schema_version=CONFIG_VERSION, mode=mode, serial=dict(port="COM11"), duration_s=0,
             **encoding)))
         for tab in range(window.config_tabs.count()):
             window.config_tabs.setCurrentIndex(tab)
+            scroll = window.config_tabs.widget(tab)
+            if tab == 1:
+                window.point_tabs.setCurrentIndex(0)
+            scroll.verticalScrollBar().setValue(0)
             app.processEvents()
             rendered = window.grab()
             path = args.output_dir / f"{mode}-{tab}.png"
@@ -84,12 +88,14 @@ def main():
             report["screenshots"].append(dict(file=path.name, pixel_size=[rendered.width(), rendered.height()],
                                                dpr=rendered.devicePixelRatio()))
             if tab == 1:
-                # 逐个滚动到每个配置区，额外保留下半部证据，避免只检查首屏。
-                scroll = window.config_tabs.widget(tab)
+                # 逐页选择后再截图，避免隐藏编辑器被错误地当成已展示的测点。
                 for editor in window.point_editors:
-                    scroll.ensureWidgetVisible(editor)
+                    window.point_tabs.setCurrentIndex(editor.index)
+                    app.processEvents()
+                    scroll.ensureWidgetVisible(editor.enabled, 0, window.point_tabs.tab_bar.height())
                     app.processEvents()
                     window.grab().save(str(args.output_dir / f"{mode}-point-{editor.index + 1}.png"))
+                window.point_tabs.setCurrentIndex(0)
                 scroll.verticalScrollBar().setValue(0)
     window.config_tabs.setCurrentIndex(0)
     window.fields["mode"].showPopup()

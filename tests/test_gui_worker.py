@@ -280,9 +280,11 @@ class GuiTests(unittest.TestCase):
         self.window.apply_config(config)
         self.assertEqual(self.window.configuration(), config)
         second = self.window.point_editors[1]
-        self.assertTrue(second.body.isHidden())
+        self.assertFalse(second.body.isHidden())
+        self.assertFalse(second.body.isEnabled())
         second.enabled.setChecked(True)
         self.assertFalse(second.body.isHidden())
+        self.assertTrue(second.body.isEnabled())
         self.assertIn("测点 1 与测点 2", self.window.points_status.text())
         self.assertEqual(second.range_label.property("tone"), "error")
         second.fields["address"].setValue(4)

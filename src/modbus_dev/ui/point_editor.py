@@ -2,10 +2,9 @@
 from .i18n import tr, bind, add_item, retranslate_tree
 from dataclasses import asdict
 
-from PySide6.QtCore import Signal, Qt, QSignalBlocker
+from PySide6.QtCore import Signal, Qt
 from PySide6.QtWidgets import (
-    QFormLayout, QGroupBox, QHBoxLayout, QLineEdit,
-    QVBoxLayout, QWidget, QToolButton,
+    QFormLayout, QHBoxLayout, QLineEdit, QVBoxLayout, QWidget,
 )
 
 from ..domain.config import PointConfig, SOURCE_FIELDS
@@ -14,16 +13,17 @@ from ..domain.operations import OPERATIONS
 from .texts import CHOICE_LABELS, HOLDING_AREA_HELP, INPUT_AREA_HELP, SLAVE_AREAS_HELP, HOLDING_INITIAL_HELP
 from ..domain.numeric import NUMERIC_TYPES, ORDERS, canonical_order, numeric_type, parse_integer
 from .context_choices import ContextComboBox
+from .errors import format_error
 from .theme import METRICS
 from .widgets import CheckBox, ComboBox, SpinBox, label, refresh_style
 
 
-class PointEditor(QGroupBox):
+class PointEditor(QWidget):
     changed = Signal()
 
     def __init__(self, index, parent=None):
         super().__init__(parent)
-        bind(self, "setTitle", tr("Point {p0}").format(p0=index + 1))
+        bind(self, "setAccessibleName", tr("Point {p0}").format(p0=index + 1))
         self.index = index
         self._loading = False
         self._source_used = True
@@ -33,8 +33,9 @@ class PointEditor(QGroupBox):
         self._point = PointConfig(enabled=False)
         self.setObjectName(f"point-{index + 1}")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, METRICS.section_spacing, 0, 0)
+        layout.setContentsMargins(0, METRICS.spacing, 0, 0)
         layout.setSpacing(METRICS.spacing)
+        layout.setAlignment(Qt.AlignTop)
         header = QHBoxLayout()
         self.enabled = CheckBox(tr('Enable'))
         bind(self.enabled, 'setAccessibleName', tr('Enable point {p0}').format(p0=index + 1))
@@ -43,12 +44,6 @@ class PointEditor(QGroupBox):
         self.range_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         header.addWidget(self.enabled)
         header.addWidget(self.range_label, 1)
-        self.expand = QToolButton()
-        self.expand.setCheckable(True)
-        self.expand.setChecked(index == 0)
-        bind(self.expand, 'setText', tr('Edit'))
-        bind(self.expand, 'setAccessibleName', tr('Expand point {p0}').format(p0=index + 1))
-        header.addWidget(self.expand)
         layout.addLayout(header)
         self.body = QWidget()
         self.form = QFormLayout(self.body)
@@ -56,6 +51,8 @@ class PointEditor(QGroupBox):
         self.form.setHorizontalSpacing(METRICS.section_spacing)
         self.form.setVerticalSpacing(METRICS.spacing)
         self.form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        # 最窄栏宽或较长译文放不下同行时，标签自动换到控件上方，不裁切输入区。
+        self.form.setRowWrapPolicy(QFormLayout.WrapLongRows)
         self.fields = {"name": QLineEdit(), "address": SpinBox(),
                        "data_type": ComboBox(), "byte_order": ContextComboBox(normalize=canonical_order),
                        "operation": ContextComboBox(), "area": ComboBox(), "readback_every": SpinBox(),
@@ -100,8 +97,7 @@ class PointEditor(QGroupBox):
         self.selection_note.setWordWrap(True)
         self.selection_note.setProperty("tone", "error")
         layout.addWidget(self.selection_note)
-        self.enabled.toggled.connect(self._enabled_changed)
-        self.expand.toggled.connect(self._changed)
+        self.enabled.toggled.connect(self._changed)
         self.fields["operation"].currentIndexChanged.connect(self._changed)
         self.fields["area"].currentIndexChanged.connect(self._changed)
         self.fields["readback_every"].valueChanged.connect(self._changed)
@@ -137,25 +133,26 @@ class PointEditor(QGroupBox):
         # 不兼容的旧选择保留在草稿中，界面留空并即时解释，避免静默替换。
         source_kind = self.fields["source.kind"]
         source_kind.filter_values(tuple(key for key in SOURCE_FIELDS if key != "sine" or not specification.integer))
-        self.body.setVisible(active and self.expand.isChecked())
-        self.expand.setVisible(active)
+        # 禁用仅锁定参数，不隐藏内容；页签切换由外层容器负责，启用开关始终可操作。
+        self.body.setEnabled(active)
         kind = source_kind.currentData()
         sine = kind == "sine"
         holding = not self._usage.master and self.fields['area'].currentData() == 'holding'
         effective_kind = 'constant' if holding else kind
-        self._source_row("source.kind", active and self._source_used and not holding)
+        self._source_row("source.kind", self._source_used and not holding)
         area_help = HOLDING_AREA_HELP if holding else INPUT_AREA_HELP
         bind(source_kind, 'setToolTip', self._source_tip if self._usage.master else area_help)
         bind(self.fields['source.value'], 'setToolTip', HOLDING_INITIAL_HELP if holding else '')
         bind(self.form.labelForField(self.fields['source.value']), 'setText', tr('Initial value') if holding else tr('Offset') if sine else tr('Value'))
         for key in ("value", "amplitude", "frequency_hz", "lower", "upper"):
-            self._source_row("source." + key, active and self._source_used and key in SOURCE_FIELDS.get(effective_kind, ()))
+            self._source_row("source." + key, self._source_used and key in SOURCE_FIELDS.get(effective_kind, ()))
         note = (HOLDING_INITIAL_HELP if holding else INPUT_AREA_HELP if not self._usage.master
                 else tr('Values come from the remote slave; no local source is used.') if not self._source_used else '')
         if self._source_used and not holding and kind == 'triangle':
             note += ('\n' if note else '') + tr('Fixed step 1 per data update; starts at the lower bound and reverses after reaching each bound.')
         bind(self.source_note, 'setText', note)
-        self.source_note.setVisible(active and self.expand.isChecked() and bool(note))
+        self.source_note.setVisible(bool(note))
+        self.source_note.setEnabled(active)
         issues = self.selection_issues()
         message = issues[0] if issues else ""
         for issue in issues[1:]:
@@ -186,10 +183,17 @@ class PointEditor(QGroupBox):
             issues.append(tr('Previous data source is incompatible; select a data source for this type.'))
         return issues
 
-    def _enabled_changed(self, enabled):
-        if enabled and not self._loading:
-            self.expand.setChecked(True)
-        self._changed()
+    def validation_error(self, period_ms):
+        """复用逐点领域校验，为隐藏页签提供错误提示，不修改草稿。"""
+        if not self.enabled.isChecked():
+            return ''
+        try:
+            path = f'points[{self.index}]'
+            point = PointConfig.from_mapping(self.configuration(), path, source_used=self._source_used)
+            point.validate(period_ms, path, source_used=self._source_used)
+        except (ValueError, TypeError) as issue:
+            return str(format_error(issue))
+        return ''
 
     def retranslate_ui(self):
         retranslate_tree(self)

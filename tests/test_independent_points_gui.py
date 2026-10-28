@@ -79,7 +79,7 @@ class IndependentGuiTests(unittest.TestCase):
             serial=dict(port='TEST', baud=115200), points=[dict(operation='read-input'),
                 dict(operation='write-multiple', address=10, readback_every=2)])))
         first, second = self.window.point_editors[:2]
-        second.expand.setChecked(True)
+        self.window.point_tabs.setCurrentIndex(1)
         self.assertTrue(first.fields['source.kind'].isHidden())
         self.assertFalse(second.fields['source.kind'].isHidden())
         self.assertTrue(first.fields['readback_every'].isHidden())

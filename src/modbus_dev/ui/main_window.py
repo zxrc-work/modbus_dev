@@ -65,7 +65,7 @@ class Workbench(QMainWindow):
     def _build_editor(self):
         self.editor = ConfigurationPanel()
         self.workspace.addWidget(self.editor)
-        for name in ("fields", "config_tabs", "config_buttons", "point_editors", "tcp_box", "serial_box",
+        for name in ("fields", "config_tabs", "config_buttons", "point_editors", "point_tabs", "tcp_box", "serial_box",
                      "access_box", "master_box", "timing_box", "rts", "data_note", "points_status"):
             setattr(self, name, getattr(self.editor, name))
 

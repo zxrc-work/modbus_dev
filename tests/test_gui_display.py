@@ -45,16 +45,24 @@ for tab in range(window.config_tabs.count()):
     window.config_tabs.setCurrentIndex(tab)
     app.processEvents()
     scroll = window.config_tabs.widget(tab)
-    fields = ([window.fields['unit'], window.fields['duration_s']] if tab == 0 else
-              [field for editor in window.point_editors for field in
-               [editor.enabled, *[widget for widget in editor.fields.values() if not widget.isHidden()]]]
-              if tab == 1 else
-              [window.fields['logging.max_files']])
-    for field in fields:
-        scroll.ensureWidgetVisible(field)
+    if tab == 0:
+        groups = [(None, [window.fields['unit'], window.fields['duration_s']])]
+    elif tab == 1:
+        groups = [(editor.index, [editor.enabled, *[widget for widget in editor.fields.values()
+                                                   if not widget.isHidden()]])
+                  for editor in window.point_editors]
+    else:
+        groups = [(None, [window.fields['logging.max_files']])]
+    for point_index, fields in groups:
+        if point_index is not None:
+            window.point_tabs.setCurrentIndex(point_index)
         app.processEvents()
-        position = field.mapTo(scroll.viewport(), field.rect().center())
-        assert scroll.viewport().rect().contains(position)
+        for field in fields:
+            scroll.ensureWidgetVisible(field)
+            app.processEvents()
+            position = field.mapTo(scroll.viewport(), field.rect().center())
+            assert field.isVisible()
+            assert scroll.viewport().rect().contains(position)
 window.runtime_scroll.ensureWidgetVisible(window.start_button)
 app.processEvents()
 position = window.start_button.mapTo(window.runtime_scroll.viewport(), window.start_button.rect().center())

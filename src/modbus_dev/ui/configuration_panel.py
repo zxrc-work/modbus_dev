@@ -4,11 +4,12 @@ import json
 from PySide6.QtCore import Signal, Qt
 from PySide6.QtWidgets import QComboBox, QFormLayout, QFrame, QHBoxLayout, QLineEdit, QScrollArea, QTabWidget, QVBoxLayout, QWidget
 from ..application.session import check_capabilities
-from ..domain.config import MAX_POINTS, PointConfig, TaskConfig, point_conflicts
+from ..domain.config import MAX_POINTS, MIN_PERIOD_MS, MAX_PERIOD_MS, PointConfig, TaskConfig, point_conflicts
 from ..domain.wire import cycle_budget
 from .errors import format_error
 from ..domain.usage import ParameterUsage
 from .point_editor import PointEditor
+from .point_tabs import PointTabs
 from .theme import METRICS
 from .widgets import CheckBox, ComboBox, SerialPortComboBox, label, refresh_style
 from .texts import CHOICE_LABELS, SCHEDULE_LATE_HELP, SLAVE_AREAS_HELP, INPUT_PERIOD_HELP, MASTER_PERIOD_HELP
@@ -42,6 +43,7 @@ class ConfigurationPanel(QFrame):
             draft_fields[f"points.{index}.enabled"] = editor.enabled
             draft_fields.update({f"points.{index}.{key}": field for key, field in editor.fields.items()})
         self.form_state = FormState(draft_fields, self.edited.emit)
+        self.changed.connect(self.update_points_summary)
         self.changed.connect(self.update_budget)
 
     def capture_draft(self):
@@ -170,11 +172,11 @@ class ConfigurationPanel(QFrame):
         self.data_budget_note = label("", "caption")
         self.data_budget_note.setWordWrap(True)
         data.addWidget(self.data_budget_note)
-        # 八点以摘要和可展开编辑区呈现，共用同一表单模型。
+        # 页签复用全部测点编辑器，槽位数量沿用领域上限，不复制或重置表单数据。
         self.point_editors = [PointEditor(i) for i in range(MAX_POINTS)]
+        self.point_tabs = PointTabs(self.point_editors)
+        data.addWidget(self.point_tabs)
         for editor in self.point_editors:
-            data.addWidget(editor)
-            editor.changed.connect(self.update_points_summary)
             editor.changed.connect(self.changed)
         data.addStretch()
 
@@ -378,8 +380,23 @@ class ConfigurationPanel(QFrame):
         conflicts = point_conflicts(points)
         overflow = any(point.enabled and point.address + point.register_count > 65536 for point in points)
         overlapping = {index for pair in conflicts for index in pair}
+        try:
+            period = int(self.text('period_ms'))
+        except ValueError:
+            period = self.base_config['period_ms']
+        # 时序草稿无效时仍校验测点自身，避免除零或把公共参数错误标到全部页签。
+        if not MIN_PERIOD_MS <= period <= MAX_PERIOD_MS:
+            period = self.base_config['period_ms']
         for i, editor in enumerate(self.point_editors):
             editor.set_conflict(i in overlapping)
+            error = editor.validation_error(period)
+            title = tr('Point {p0}').format(p0=i + 1)
+            name = editor.fields['name'].text().strip()
+            tooltip = title + (' · ' + name if name else '') + '\n' + editor.range_label.text()
+            if error:
+                tooltip += '\n' + error
+            self.point_tabs.update_point(i, enabled=points[i].enabled,
+                                         error=i in overlapping or bool(error), tooltip=tooltip)
         count = sum(point.enabled for point in points)
         if conflicts:
             text = "；".join(tr('Point {p0} overlaps point {p1}').format(p0=a + 1, p1=b + 1) for a, b in conflicts)
