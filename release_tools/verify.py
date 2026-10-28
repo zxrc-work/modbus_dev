@@ -198,9 +198,44 @@ class Pty:
         os.close(self.slave)
 
 
+def rtu_check_config(mode, port):
+    """独立验收夹具：文件版本、两区及写后读回均显式使用当前逐点格式。"""
+    config = dict(schema_version=4, mode=mode, duration_s=0, serial=dict(port=port))
+    if mode == "rtu-slave":
+        config.update(access_mode="read-only", points=[
+            dict(area=area, address=0, source=dict(kind="constant", value=12.5))
+            for area in ("holding", "input")])
+    elif mode == "rtu-master":
+        config.update(duration_s=1.2, period_ms=200, timeout_ms=150, access_mode="read-write",
+            points=[dict(address=0, operation="write-multiple", readback_every=1,
+                         source=dict(kind="constant", value=12.5))])
+    else:
+        raise ValueError(f"Unsupported RTU verification mode: {mode}")
+    return config
+
+
+def task_examples(directory):
+    """任务交给实际 CLI 校验；固定 PDU 用例单独检查，不作为任务导入。"""
+    for sample in sorted(directory.glob("*.json")):
+        if not sample.name.endswith("-register-cases.json"):
+            yield sample
+            continue
+        data = json.loads(sample.read_text(encoding="utf-8"))
+        require(isinstance(data, list) and bool(data), f"报文用例必须为非空数组：{sample}")
+        for case in data:
+            require(isinstance(case, dict) and isinstance(case.get("request"), str), f"报文用例缺少请求：{sample}")
+            require(bool(bytes.fromhex(case["request"])), f"报文用例请求为空：{sample}")
+            response = case.get("response")
+            require(response is None or isinstance(response, str), f"报文用例响应格式无效：{sample}")
+            if response is not None:
+                bytes.fromhex(response)
+            unit = case.get("unit", 1)
+            require(type(unit) is int and 0 <= unit <= 247, f"报文用例站号无效：{sample}")
+
+
 def verify_pty(cli, root, environment):
     with Pty() as peer:
-        config = dict(mode="rtu-slave", duration_s=0, serial=dict(port=peer.port), source=dict(value=12.5))
+        config = rtu_check_config("rtu-slave", peer.port)
         with ProcessCase(cli, root / "rtu-slave", config, environment) as run:
             run.started()
             for function in (3, 4):
@@ -242,8 +277,7 @@ def verify_pty(cli, root, environment):
         thread = threading.Thread(target=master_peer)
         thread.start()
         try:
-            config = dict(mode="rtu-master", duration_s=1.2, period_ms=200, timeout_ms=150,
-                          serial=dict(port=peer.port), readback_every=1, source=dict(value=12.5))
+            config = rtu_check_config("rtu-master", peer.port)
             with ProcessCase(cli, root / "rtu-master", config, environment, "run") as run:
                 result = run.finish(expected=0, stop=False)
                 require(result["counters"].get("ack", 0) >= 3 and result["counters"].get("read", 0) >= 3,
@@ -272,7 +306,7 @@ def verify_release(config, bundle, root):
     execute("version", [str(cli), "--version"])
     execute("ports", [str(cli), "ports"])
     execute("native-modules", [str(cli), "self-check", "--output", str(root / "native-modules.json")])
-    for sample in (bundle.parent / "examples").glob("*.json"):
+    for sample in task_examples(bundle.parent / "examples"):
         execute("validate-" + sample.stem, [str(cli), "validate", str(sample)])
     cases.append("version-ports-examples-and-native-modules")
     cases += verify_tcp(cli, root, environment)

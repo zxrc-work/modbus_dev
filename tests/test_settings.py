@@ -57,10 +57,12 @@ class SettingsTests(unittest.TestCase):
         self.root.cleanup()
 
     def test_every_registered_field_is_saved_before_returning_from_its_change(self):
-        from PySide6.QtWidgets import QAbstractButton, QComboBox, QSpinBox
+        from PySide6.QtWidgets import QAbstractButton, QComboBox, QMessageBox, QSpinBox
         self.assertFalse(self.store.path.exists())
         for key, field in self.window.editor.form_state.fields.items():
-            with self.subTest(field=key):
+            # Unexpected save failures must fail with their message rather than
+            # leave an unattended offscreen run waiting in a modal dialog.
+            with self.subTest(field=key), patch.object(QMessageBox, "warning") as warning:
                 if isinstance(field, QComboBox):
                     if field.isEditable():
                         field.setEditText("custom-" + key)
@@ -73,6 +75,8 @@ class SettingsTests(unittest.TestCase):
                     field.setValue(field.value() + 1)
                 else:
                     field.setText("draft-" + key)
+                warning.assert_not_called()
+                self.assertIsNone(self.window.settings.last_error)
                 saved = self.store.load()["session"]["configuration"]["values"]
                 self.assertEqual(saved, self.window.editor.form_state.capture())
 

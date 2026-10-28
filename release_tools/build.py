@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import zipfile
 
 from .audit import audit_bundle, write_checksums
@@ -20,18 +21,31 @@ from .config import ReleaseConfig, TARGETS, inspect_environment, source_identity
 from .verify import verify_release
 from .translations import compile_catalog
 
+DEFAULT_TEST_TIMEOUT = 600
+
+
+def positive_seconds(value):
+    seconds = int(value)
+    if seconds <= 0:
+        raise argparse.ArgumentTypeError("测试超时必须为正整数秒")
+    return seconds
+
 
 def save(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def run_tests(config, stage, source, name):
+def run_tests(config, stage, source, name, *, timeout=DEFAULT_TEST_TIMEOUT):
     environment = dict(os.environ, PYTHONPATH=str(source), PYTHONNOUSERSITE="1", QT_QPA_PLATFORM="offscreen")
     log = stage / f"{name}.log"
-    print(f"执行 {name}：{log}", flush=True)
-    with log.open("wb") as stream:
-        subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", str(config.root / "tests"), "-v"],
-                       cwd=stage, env=environment, stdout=stream, stderr=subprocess.STDOUT, check=True, timeout=240)
+    print(f"执行 {name}（限时 {timeout} 秒）：{log}", flush=True)
+    started = time.monotonic()
+    try:
+        with log.open("wb") as stream:
+            subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", str(config.root / "tests"), "-v"],
+                           cwd=stage, env=environment, stdout=stream, stderr=subprocess.STDOUT, check=True, timeout=timeout)
+    finally:
+        print(f"{name} 耗时 {time.monotonic() - started:.3f} 秒", flush=True)
 
 
 def archive_payload(payload, destination, windows):
@@ -54,7 +68,7 @@ def unpack_archive(archive, destination):
             stream.extractall(destination, filter="data")
 
 
-def build(config):
+def build(config, *, test_timeout=DEFAULT_TEST_TIMEOUT):
     config.require_native_target()
     dependencies = inspect_environment(config)
     compile_catalog(config.root)
@@ -63,13 +77,13 @@ def build(config):
     work.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix=config.target + "-", dir=work)).resolve()
     print(f"构建证据目录：{stage}", flush=True)
-    run_tests(config, stage, config.root / "src", "source-tests")
+    run_tests(config, stage, config.root / "src", "source-tests", timeout=test_timeout)
     native, protected, hidden, expected = compile_package(config, stage)
-    run_tests(config, stage, native, "compiled-tests")
+    run_tests(config, stage, native, "compiled-tests", timeout=test_timeout)
     metadata = dict(application=config.application, version=config.version, target=config.target,
         cli_executable=config.cli_executable, gui_executable=config.gui_executable,
         built_at=datetime.now(timezone.utc).isoformat(), built_on=platform.platform(),
-        libc=platform.libc_ver(), python=sys.version, dependencies=dependencies,
+        libc=platform.libc_ver(), python=sys.version, dependencies=dependencies, test_timeout_s=test_timeout,
         compiled_modules=protected, native_files=expected,
         protection="Cython native modules; only launchers and package initializers use bytecode",
         signing="ad-hoc; no Developer ID or notarization" if config.target.startswith("macos-") else "unsigned",
@@ -130,10 +144,12 @@ def build(config):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target", required=True, choices=TARGETS)
+    parser.add_argument("--test-timeout", type=positive_seconds, default=DEFAULT_TEST_TIMEOUT,
+                        help=f"每轮完整回归的超时秒数，必须为正整数（默认 {DEFAULT_TEST_TIMEOUT}）")
     args = parser.parse_args(argv)
     config = ReleaseConfig.load(Path(__file__).resolve().parents[1], args.target)
     try:
-        build(config)
+        build(config, test_timeout=args.test_timeout)
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
         print(f"发布构建失败：{error}", file=sys.stderr)
         return 1

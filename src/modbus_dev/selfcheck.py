@@ -47,10 +47,17 @@ def available_port():
         return listener.getsockname()[1]
 
 
+def gui_check_config(port, duration=0):
+    """GUI 自检通过 FC03 读取保持区的固定值，不依赖历史配置默认值。"""
+    from .domain.config import CONFIG_VERSION, TaskConfig
+    return TaskConfig.from_mapping(dict(schema_version=CONFIG_VERSION, mode="tcp-slave",
+        duration_s=duration, port=port, access_mode="read-only",
+        points=[dict(area="holding", address=0, source=dict(kind="constant", value=12.5))]))
+
+
 def gui_check(output):
     """真实 GUI 经实际 CLI 工作进程完成通信、停止、崩溃和恢复闭环。"""
     from PySide6.QtCore import QProcess
-    from .domain.config import TaskConfig
     from .gui import Workbench, create_application
 
     require(frozen(), "GUI 自检必须运行实际发布入口")
@@ -71,8 +78,7 @@ def gui_check(output):
         raise TimeoutError("发布版 Qt 生命周期超时")
 
     def configure(duration=0, port=None):
-        window.apply_config(TaskConfig.from_mapping(dict(mode="tcp-slave", duration_s=duration,
-            port=port or available_port(), source=dict(kind="constant", value=12.5))))
+        window.apply_config(gui_check_config(port or available_port(), duration))
 
     def begin():
         window.start()

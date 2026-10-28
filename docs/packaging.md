@@ -59,6 +59,10 @@ Cython 提高逆向门槛，不是不可逆加密，也不会隐藏所有字符�
 macOS 需 Xcode Command Line Tools / Clang；Windows 需 Visual Studio C++ Build Tools 和
 Windows SDK，建议使用开发者终端；麒麟需匹配 Python 的开发头文件、C 编译器及 Qt 桌面所需系统库。
 
+源码与编译后的两轮完整回归各自默认限时 600 秒。较慢机器可在构建命令中添加
+`--test-timeout 900` 调整每轮上限；只接受正整数秒，超时仍使构建失败，不跳过测试或实包验收。
+构建输出记录各轮实际耗时，`BUILD_INFO.json` 记录所使用的测试期限。
+
 ### macOS arm64
 
 ```sh
@@ -113,7 +117,7 @@ python3.12 -m venv .venv-build-kylin-x86_64
 3. 白名单复制公开示例及使用说明，生成构建信息和内容校验清单。
 4. Windows 归档为 ZIP；macOS/麒麟归档为 tar.gz，保留 Qt framework 的符号链接和执行权限。
 5. 解压到含中文和空格的独立路径，在清除 Python、Qt 开发环境变量和开发 PATH 后运行实际程序。
-6. 验证版本、串口枚举、配置模板、全部本机模块、CLI/worker TCP 读取与拒写、正常停止、
+6. 验证版本、串口枚举、配置模板、固定报文用例格式、全部本机模块、CLI/worker TCP 读取与拒写、正常停止、
    同端口重启、端口占用失败及恢复、父管道断开、配置错误终态。
 7. POSIX 使用隔离 PTY 验证实际 RTU 主从站及写入读回；Windows 不以此替代 COM 验证。
 8. 实际 GUI 分别以原生和离屏平台启动，经包内 CLI 验证读数、停止、重启、崩溃恢复、
