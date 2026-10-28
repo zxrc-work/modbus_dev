@@ -1380,5 +1380,13 @@ Input: read with FC04; the source updates values continuously, unaffected by mas
       <source>Set only when the session starts. Later master writes are retained; the input register update period does not refresh this value.</source>
       <translation>仅在会话启动时设置，之后保留主站写入；不随输入区数据更新周期刷新。</translation>
     </message>
+    <message>
+      <source>Incompatible configuration version. Only version {current} is supported; recreate the configuration.</source>
+      <translation>配置版本不兼容，仅支持版本 {current}，请重新配置。</translation>
+    </message>
+    <message>
+      <source>Configuration version</source>
+      <translation>配置版本</translation>
+    </message>
   </context>
 </TS>

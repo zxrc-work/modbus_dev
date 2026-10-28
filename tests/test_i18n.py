@@ -10,6 +10,7 @@ import unittest
 import xml.etree.ElementTree as ET
 from unittest.mock import patch
 
+from config_factory import task_mapping
 from modbus_dev.domain.config import TaskConfig
 from modbus_dev.domain.events import ConfigurationError
 from modbus_dev.ui.preferences import PreferenceStore
@@ -237,7 +238,7 @@ class TranslationTests(unittest.TestCase):
         cases = ((dict(mode="rtu-slave", serial=dict(port="TEST")), "data_note",
                   "Each point belongs to one register area.", "每个测点只配置一个寄存器区",
                   "Currently read-only", "当前为只读"),
-                 (dict(mode="rtu-master", serial=dict(port="TEST"), master_operation="write-multiple"),
+                 (task_mapping(mode="rtu-master", serial=dict(port="TEST"), operation="write-multiple"),
                   "readback_note", "FC04 reads a separate register area", "FC04 读取的是独立输入区", "FC03", "FC03"))
         for settings, field, english, chinese, english_detail, chinese_detail in cases:
             with self.subTest(mode=settings["mode"]):

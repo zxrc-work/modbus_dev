@@ -1,16 +1,16 @@
 {
-  "schema_version": 2,
+  "schema_version": 4,
   "mode": "tcp-slave",
   "host": "127.0.0.1",
   "port": 1502,
   "unit": 1,
-  "byte_order": "B1234",
   "period_ms": 100,
   "duration_s": 0,
+  "access_mode": "read-only",
   "points": [
-    {"enabled": true, "name": "温度", "address": 0, "source": {"kind": "constant", "value": 12.5}},
-    {"enabled": true, "name": "压力", "address": 2, "source": {"kind": "sine", "value": 10, "amplitude": 2, "frequency_hz": 0.5}},
-    {"enabled": true, "name": "流量", "address": 4, "source": {"kind": "constant", "value": -3.5}},
-    {"enabled": false, "name": "备用", "address": 6, "source": {"kind": "sine", "value": 0, "amplitude": 1, "frequency_hz": 1}}
+    {"enabled": true, "name": "温度", "address": 0, "source": {"kind": "constant", "value": 12.5}, "data_type": "float32", "byte_order": "B1234", "area": "input"},
+    {"enabled": true, "name": "压力", "address": 2, "source": {"kind": "sine", "value": 10, "amplitude": 2, "frequency_hz": 0.5}, "data_type": "float32", "byte_order": "B1234", "area": "input"},
+    {"enabled": true, "name": "流量", "address": 4, "source": {"kind": "constant", "value": -3.5}, "data_type": "float32", "byte_order": "B1234", "area": "input"},
+    {"enabled": false, "name": "备用", "address": 6, "source": {"kind": "sine", "value": 0, "amplitude": 1, "frequency_hz": 1}, "data_type": "float32", "byte_order": "B1234", "area": "input"}
   ]
 }

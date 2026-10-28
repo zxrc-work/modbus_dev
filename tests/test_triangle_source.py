@@ -78,7 +78,7 @@ class TriangleSourceTests(unittest.TestCase):
                 fields = dict(lower="0", upper="32767")
                 fields[field] = number
                 # 直接写入十进制文本，避免测试数据先被 Python 浮点舍入。
-                path.write_text('{"mode":"tcp-slave","points":[{"data_type":"int16","source":'
+                path.write_text('{"schema_version":4,"mode":"tcp-slave","points":[{"data_type":"int16","source":'
                     '{"kind":"triangle","lower":' + fields["lower"] + ',"upper":' + fields["upper"] + '}}]}')
                 with self.subTest(field=field), self.assertRaises(ConfigurationError) as error:
                     load_config(path)
@@ -115,7 +115,8 @@ class TriangleSourceTests(unittest.TestCase):
         result, ports, _, _ = test_rtu_slave.RtuSlaveSessionTests().run_session(
             duration_s=.4, packets=[(.01, read_input), (.11, read_input), (.21, read_input),
                                    (.31, read_input), (.35, read_holding)],
-            points=[dict(data_type="int16", source=dict(kind="triangle", lower=-1, upper=1))])
+            points=[dict(area="input", data_type="int16", source=dict(kind="triangle", lower=-1, upper=1)),
+                    dict(area="holding", data_type="int16", source=dict(value=-1))])
         self.assertEqual(result["exit_code"], 0, result)
         self.assertEqual([packet[3:5] for _, packet in ports[0].writes],
                          [bytes.fromhex(word) for word in ("ffff", "0000", "0001", "0000", "ffff")])

@@ -13,6 +13,7 @@ import time
 import unittest
 from unittest.mock import patch
 
+from config_factory import task_mapping
 from modbus_dev.domain.config import TaskConfig
 from modbus_dev.domain.events import Event
 from modbus_dev.worker import EventPreview
@@ -43,7 +44,7 @@ class WorkerTests(unittest.TestCase):
             else:
                 port = available_port()
             config = Path(root) / "input.json"
-            config.write_text(json.dumps(dict(mode="tcp-slave", port=port, duration_s=duration)))
+            config.write_text(json.dumps(dict(schema_version=4, mode="tcp-slave", port=port, duration_s=duration)))
             process = subprocess.Popen([sys.executable, "-m", "modbus_dev", "worker", str(config),
                                         "--output", str(Path(root) / "run")],
                                        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -94,7 +95,7 @@ class WorkerTests(unittest.TestCase):
     def test_unread_status_pipe_does_not_block_session_shutdown(self):
         with tempfile.TemporaryDirectory() as root:
             path = Path(root) / "config.json"
-            path.write_text(json.dumps(dict(mode="tcp-slave", port=available_port(), duration_s=2.5)))
+            path.write_text(json.dumps(dict(schema_version=4, mode="tcp-slave", port=available_port(), duration_s=2.5)))
             process = subprocess.Popen([sys.executable, "-m", "modbus_dev", "worker", str(path),
                                         "--output", str(Path(root) / "run")],
                                        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -152,7 +153,7 @@ class GuiTests(unittest.TestCase):
 
     def test_configuration_roundtrip_all_modes(self):
         for mode in ("rtu-master", "rtu-slave", "tcp-slave"):
-            config = TaskConfig.from_mapping(dict(mode=mode, serial=dict(port="TEST"),
+            config = TaskConfig.from_mapping(task_mapping(mode=mode, serial=dict(port="TEST"),
                                                  source=dict(kind="sine", value=2), addresses=[0, 4],
                                                  period_ms=200, timeout_ms=150,
                                                  logging=dict(max_files=7),
@@ -163,7 +164,7 @@ class GuiTests(unittest.TestCase):
     def test_gui_bridge_archives_a_completed_session(self):
         root = Path(self.root.name)
         path = root / "bridge-config.json"
-        path.write_text(json.dumps(dict(mode="tcp-slave", host="127.0.0.1", port=available_port(), duration_s=.25)),
+        path.write_text(json.dumps(dict(schema_version=4, mode="tcp-slave", host="127.0.0.1", port=available_port(), duration_s=.25)),
                         encoding="utf-8")
         output = root / "archived"
         bridge = Path(__file__).resolve().parents[1] / "tools/verify_gui_session.py"

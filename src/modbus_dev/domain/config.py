@@ -13,7 +13,7 @@ MAX_POINTS = 8
 CONFIG_VERSION = 4
 MIN_PERIOD_MS = 20
 MAX_PERIOD_MS = 60000
-# 仅供旧 float32 点表和预留槽位的默认间距使用，实际占用由每点类型决定。
+# 预留槽位沿用 float32 的默认间距，实际占用由每点类型决定。
 REGISTERS_PER_POINT = NUMERIC_TYPES["float32"].registers
 SOURCE_FIELDS = {"constant": ("value",), "sine": ("value", "amplitude", "frequency_hz"),
                  "triangle": ("lower", "upper")}
@@ -21,6 +21,13 @@ SOURCE_FIELDS = {"constant": ("value",), "sine": ("value", "amplitude", "frequen
 
 def fail(path, message, *, reason=None, **parameters):
     raise ConfigurationError(path, message, reason=reason, parameters=parameters)
+
+
+def check_config_version(version):
+    """只接受当前任务格式，不猜测或迁移缺少版本标记的文件。"""
+    if type(version) is not int or version != CONFIG_VERSION:
+        fail("schema_version", f"Incompatible configuration version {version!r}; expected {CONFIG_VERSION}",
+             reason="config_version", current=CONFIG_VERSION)
 
 
 def number(value, path, low, high, integer=False):
@@ -153,8 +160,8 @@ class PointConfig:
     data_type: str = "float32"
     byte_order: str | None = None
     area: str = "input"
-    operation: str | None = None
-    readback_every: int | None = None
+    operation: str = "write-multiple"
+    readback_every: int = 0
 
     def __post_init__(self):
         object.__setattr__(self, "byte_order", canonical_order(self.byte_order))
@@ -169,6 +176,9 @@ class PointConfig:
     @classmethod
     def from_mapping(cls, data, path, *, source_used=True):
         data = dict(section(data, path, cls.__dataclass_fields__))
+        data_type = data.get("data_type", "float32")
+        if data.get("byte_order") is None and isinstance(data_type, str) and data_type in NUMERIC_TYPES:
+            data["byte_order"] = resolve_order(data_type)
         data["source"] = SourceConfig.from_mapping(data.get("source", {}), path + ".source",
                                                  active=source_used and data.get("enabled", True) is True)
         return cls(**data)
@@ -219,11 +229,7 @@ class TaskConfig:
     unit: int = 1
     points: tuple[PointConfig, ...] = field(default_factory=lambda: tuple(
         default_point(i) for i in range(MAX_POINTS)))
-    byte_order: str = field(default="B1234", compare=False, repr=False)
     access_mode: str = "read-write"
-    master_operation: str = field(default="write-multiple", compare=False, repr=False)
-    read_function: int = field(default=3, compare=False, repr=False)
-    readback_every: int = field(default=0, compare=False, repr=False)
     period_ms: int = 100
     schedule_tolerance_percent: float = 10.0
     timeout_ms: int = 80
@@ -237,21 +243,28 @@ class TaskConfig:
         # 主站区域由逐点功能码唯一确定，避免导出的区域与实际请求相矛盾。
         if self.mode == "rtu-master":
             object.__setattr__(self, "points", tuple(replace(point, area=(
-                "input" if (point.operation or self.master_operation) == "read-input" else "holding"))
+                "input" if point.operation == "read-input" else "holding"))
                 for point in self.points))
 
     @classmethod
     def from_mapping(cls, data, *, validate=True):
-        data = dict(section(data, "config", (*cls.__dataclass_fields__, "addresses", "source")))
-        # 旧从站配置继续保持只读权限，不因升级悄悄开放写入。
+        if not isinstance(data, dict):
+            fail("config", "must be an object")
+        # 内部构造可省略版本；文件入口另行要求显式标记。旧版本在字段解析前拒绝。
+        check_config_version(data.get("schema_version", CONFIG_VERSION))
+        data = dict(section(data, "config", cls.__dataclass_fields__))
         if data.get("mode") in ("rtu-slave", "tcp-slave"):
             data.setdefault("access_mode", "read-only")
-        if data.get("access_mode") == "read-only":
-            data.setdefault("master_operation", "read-input")
-        usage = ParameterUsage(data.get("mode", "rtu-master"), data.get("master_operation", "write-multiple"))
         number(data.get("period_ms", 100), "period_ms", MIN_PERIOD_MS, MAX_PERIOD_MS, True)
-        from .migration import migrate_points
-        points = migrate_points(data, usage)
+        raw_points = data.pop("points", [{}])
+        if not isinstance(raw_points, (list, tuple)) or not 1 <= len(raw_points) <= MAX_POINTS:
+            fail("points", f"provide 1..{MAX_POINTS} point configurations", reason="point_count", maximum=MAX_POINTS)
+        points = []
+        for index, point in enumerate(raw_points):
+            path = f"points[{index}]"
+            section(point, path, PointConfig.__dataclass_fields__)
+            usage = ParameterUsage(data.get("mode", "rtu-master"), point.get("operation", "write-multiple"))
+            points.append(PointConfig.from_mapping(point, path, source_used=usage.source))
         points.extend(default_point(i) for i in range(len(points), MAX_POINTS))
         data["points"], data["schema_version"] = tuple(points), CONFIG_VERSION
         serial = section(data.pop("serial", {}), "serial", SerialConfig.__dataclass_fields__)
@@ -262,7 +275,7 @@ class TaskConfig:
         return result
 
     def validate(self):
-        number(self.schema_version, "schema_version", CONFIG_VERSION, CONFIG_VERSION, True)
+        check_config_version(self.schema_version)
         choice(self.mode, "mode", ("rtu-master", "rtu-slave", "tcp-slave"))
         choice(self.policy, "policy", ("continuous", "strict"))
         usage = self.usage
@@ -274,13 +287,11 @@ class TaskConfig:
             number(self.schedule_tolerance_percent, "schedule_tolerance_percent", 0, 100)
         number(self.timeout_ms, "timeout_ms", 1, 60000, True)
         number(self.duration_s, "duration_s", 0, 86400 * 365)
-        if usage.readback:
-            choice(self.read_function, "read_function", (3,))
         if not 1 <= len(self.points) <= MAX_POINTS:
             fail("points", f"provide 1..{MAX_POINTS} point configurations", reason="point_count", maximum=MAX_POINTS)
         for i, point in enumerate(self.points):
             point_usage = self.point_usage(point)
-            point.validate(self.period_ms, f"points[{i}]", source_used=point_usage.source, default_order=self.byte_order)
+            point.validate(self.period_ms, f"points[{i}]", source_used=point_usage.source)
             if not point.enabled:
                 continue
             choice(point.area, f"points[{i}].area", ("holding", "input"))
@@ -321,22 +332,20 @@ class TaskConfig:
                      gap=self.serial.gap_ms)
 
     def to_mapping(self):
-        # 新文件只保存每点的有效设置，不再导出全局操作和继承编码。
+        # 仅保存当前逐点模型，不保留历史共享字段或迁移分支。
         data = asdict(self)
-        for key in ("byte_order", "master_operation", "read_function", "readback_every"):
-            data.pop(key)
         data["schema_version"] = CONFIG_VERSION
         for point, value in zip(self.points, data["points"]):
-            value["byte_order"] = point.encoding_order(self.byte_order) if point.enabled else point.byte_order
+            value["byte_order"] = point.encoding_order() if point.enabled else point.byte_order
             value["operation"] = self.point_usage(point).operation
             value["readback_every"] = self.point_readback(point)
         return data
 
     def point_usage(self, point):
-        return ParameterUsage(self.mode, point.operation or self.master_operation, self.point_readback(point))
+        return ParameterUsage(self.mode, point.operation, self.point_readback(point))
 
     def point_readback(self, point):
-        return self.readback_every if point.readback_every is None else point.readback_every
+        return point.readback_every
 
     def point_area(self, point):
         if self.mode == "rtu-master":
@@ -353,11 +362,6 @@ class TaskConfig:
     @property
     def enabled_points(self):
         return tuple(point for point in self.points if point.enabled)
-
-    @property
-    def master_function(self):
-        from .operations import OPERATIONS
-        return OPERATIONS[self.master_operation]
 
     @property
     def addresses(self):
@@ -388,12 +392,13 @@ def load_config(path):
     except InvalidOperation:
         fail("config", "invalid JSON number")
 
+    if isinstance(data, dict):
+        check_config_version(data.get("schema_version"))
+
     # 整数源值先按 JSON 中的十进制精确检查；其他字段仍按原来的 float 语义处理。
     if isinstance(data, dict) and isinstance(data.get("points"), list):
-        operation = data.get("master_operation", "read-input" if data.get("access_mode") == "read-only" else "write-multiple")
-        usage = ParameterUsage(data.get("mode", "rtu-master"), operation)
         for index, point in enumerate(data["points"]):
-            if not isinstance(point, dict) or point.get("enabled", True) is not True or not ParameterUsage(data.get("mode", "rtu-master"), point.get("operation") or operation).source:
+            if not isinstance(point, dict) or point.get("enabled", True) is not True or not ParameterUsage(data.get("mode", "rtu-master"), point.get("operation", "write-multiple")).source:
                 continue
             data_type = point.get("data_type", "float32")
             source = point.get("source")

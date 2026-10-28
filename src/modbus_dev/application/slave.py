@@ -76,7 +76,7 @@ def run_slave(runner):
                         selected = [(point, value) for point, value in pairs if point.area == area]
                         registers[area] = {request.address + i: word
                             for request in point_write_requests([point for point, _ in selected],
-                                [value for _, value in selected], runner.config.byte_order)
+                                [value for _, value in selected])
                             for i, word in enumerate(request.registers)}
                     runner.engine.publish(registers)
                     runner.counters["source_updates"] += 1

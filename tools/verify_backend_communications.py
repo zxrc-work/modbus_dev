@@ -16,6 +16,7 @@ import serial
 from serial.tools.list_ports import comports
 from verify_virtual_serial import PtyPeer, frame as rtu_frame
 from modbus_dev.reporting.segments import event_paths
+from modbus_dev.domain.config import CONFIG_VERSION
 
 
 def save(path, value):
@@ -327,8 +328,10 @@ class Matrix:
 
     def slave(self, folder, trace, mode, entry):
         peer = wire = backend = None
-        config = dict(mode=mode, addresses=[0, 2, 4, 6], period_ms=100, timeout_ms=80,
-                      source=dict(kind="constant", value=12.5), duration_s=15 if entry == "run" else 0)
+        config = dict(schema_version=CONFIG_VERSION, mode=mode, period_ms=100, timeout_ms=80,
+                      points=[dict(area=area, address=address, source=dict(value=12.5))
+                              for area in ("holding", "input") for address in range(0, 8, 2)],
+                      duration_s=15 if entry == "run" else 0)
         if mode == "rtu-slave":
             port, peer = self.serial()
             config["serial"] = dict(port=port, baud=9600)
@@ -352,8 +355,10 @@ class Matrix:
 
     def source_clock(self, folder, trace, mode):
         peer = wire = backend = None
-        config = dict(mode=mode, addresses=[0, 2, 4, 6], duration_s=0, period_ms=100,
-                      source=dict(kind="sine", value=10, amplitude=1, frequency_hz=.5))
+        config = dict(schema_version=CONFIG_VERSION, mode=mode, duration_s=0, period_ms=100,
+                      points=[dict(area="input", address=address,
+                                   source=dict(kind="sine", value=10, amplitude=1, frequency_hz=.5))
+                              for address in range(0, 8, 2)])
         if mode == "rtu-slave":
             port, peer = self.serial()
             config["serial"] = dict(port=port, baud=9600)
@@ -367,8 +372,8 @@ class Matrix:
             for _ in range(5):
                 # Long periods with no poll must still advance the source clock.
                 time.sleep(.23)
-                data = wire.exchange(read_pdu())
-                require(data[:2] == b"\x03\x10", "Missing sine snapshot")
+                data = wire.exchange(read_pdu(4))
+                require(data[:2] == b"\x04\x10", "Missing sine snapshot")
                 values = struct.unpack(">ffff", data[2:])
                 require(len(set(values)) == 1, "Snapshot contains different source generations")
                 require(all(9 <= v <= 11 for v in values), "Sine outside configured bounds")
@@ -424,9 +429,11 @@ class Matrix:
         server = threading.Thread(target=serve, daemon=True)
         server.start()
         try:
-            config = dict(mode="rtu-master", serial=dict(port=port, baud=9600),
-                          addresses=[0, 2, 4, 6], source=dict(kind="sine", value=10, amplitude=1, frequency_hz=.5),
-                          duration_s=self.args.seconds, period_ms=100, timeout_ms=80, readback_every=1)
+            config = dict(schema_version=CONFIG_VERSION, mode="rtu-master", serial=dict(port=port, baud=9600),
+                          points=[dict(address=address, operation="write-multiple", readback_every=1,
+                                       source=dict(kind="sine", value=10, amplitude=1, frequency_hz=.5))
+                                  for address in range(0, 8, 2)],
+                          duration_s=self.args.seconds, period_ms=100, timeout_ms=80)
             backend = Backend(folder / "master", config, entry, cli=self.args.cli)
             result = backend.finish(timeout=self.args.seconds+15)
             require(not errors, str(errors))
@@ -449,9 +456,10 @@ class Matrix:
         holder = serial.Serial(port, 9600, timeout=.01, **options)
         backend = None
         try:
-            backend = Backend(folder / "slave", dict(mode="rtu-slave", duration_s=0,
-                serial=dict(port=port, baud=9600), addresses=[0, 2, 4, 6],
-                source=dict(kind="constant", value=12.5)), cli=self.args.cli)
+            backend = Backend(folder / "slave", dict(schema_version=CONFIG_VERSION, mode="rtu-slave", duration_s=0,
+                serial=dict(port=port, baud=9600),
+                points=[dict(area=area, address=address, source=dict(value=12.5))
+                        for area in ("holding", "input") for address in range(0, 8, 2)]), cli=self.args.cli)
             backend.started()
             time.sleep(1.2)
             holder.close()

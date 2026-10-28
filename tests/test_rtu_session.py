@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from modbus_dev.application.control import Control
 from modbus_dev.application.session import SessionRunner
+from config_factory import task_mapping
 from modbus_dev.domain.config import TaskConfig
 from modbus_dev.domain.mapping import write_requests
 from modbus_dev.domain.transactions import Request, StopRequested
@@ -116,7 +117,7 @@ class Peer:
 
 
 def config(**kwargs):
-    return TaskConfig.from_mapping(dict(serial=dict(port="TEST"), duration_s=.4, **kwargs))
+    return TaskConfig.from_mapping(task_mapping(serial=dict(port="TEST"), duration_s=.4, **kwargs))
 
 
 class SessionTests(unittest.TestCase):
@@ -124,7 +125,7 @@ class SessionTests(unittest.TestCase):
                  journal_factory=Journal, **options):
         clock = FakeControl(stop_at)
         peer = Peer(clock, actions, delay)
-        settings = TaskConfig.from_mapping(dict(serial=dict(port="TEST"), duration_s=duration, **options))
+        settings = TaskConfig.from_mapping(task_mapping(serial=dict(port="TEST"), duration_s=duration, **options))
         factory = (setup(clock, peer) if setup else lambda _: peer)
         with tempfile.TemporaryDirectory() as root:
             runner = SessionRunner(settings, Path(root) / "run", control=clock,
@@ -348,7 +349,7 @@ class SessionTests(unittest.TestCase):
         self.assertEqual([e["details"]["status"] for e in failures], ["timeout"])
 
     def test_ambiguous_read_keeps_value_quality_and_protocol_errors_still_warn(self):
-        result, _, events = self.exercise(["timeout"], duration=.3, master_operation="read-input", delay=.005)
+        result, _, events = self.exercise(["timeout"], duration=.3, operation="read-input", delay=.005)
         self.assertEqual(result["reply_summary"]["valid_read"], 2)
         reads = [e for e in events if e["code"] == "register_values" and e["details"]["direction"] == "rx"]
         self.assertTrue(reads)
@@ -430,7 +431,7 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(result["counters"]["read"], 1)
         self.assertEqual([data[1] for _, data in peer.writes], [16, 3])
         self.assertGreaterEqual(peer.writes[1][0] - .11, 3.5 * 10 / 9600 - 1e-12)
-        result, peer, _ = self.exercise(duration=.1, delay=.01, master_operation="read-input")
+        result, peer, _ = self.exercise(duration=.1, delay=.01, operation="read-input")
         self.assertEqual(result["counters"]["read"], 1)
         self.assertEqual([data[1] for _, data in peer.writes], [4])
 

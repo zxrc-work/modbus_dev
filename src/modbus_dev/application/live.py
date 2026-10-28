@@ -59,7 +59,7 @@ class LiveValues:
                 value = None
                 if complete:
                     try:
-                        value = decode_value(raw, point.data_type, point.encoding_order(self.config.byte_order))
+                        value = decode_value(raw, point.data_type, point.encoding_order())
                     except ValueError:
                         pass
                 quality = data.get("quality", "received") if complete else "partial"
@@ -68,7 +68,7 @@ class LiveValues:
                 self.sequence += 1
                 self.rows[key] = dict(key=key, sample_id=self.sequence, point=index, name=point.name or f"测点 {index + 1}",
                                      area=data["area"], address=point.address, direction=data["direction"],
-                                     data_type=point.data_type, byte_order=point.encoding_order(self.config.byte_order),
+                                     data_type=point.data_type, byte_order=point.encoding_order(),
                                      value=value, registers=list(raw), function=data["function"],
                                      quality=quality, confirmation=None,
                                      sampled_s=data["sampled_s"])

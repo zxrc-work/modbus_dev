@@ -1,4 +1,4 @@
-"""验证八点独立配置、混合操作、区域隔离、旧版迁移及周期预算边界。"""
+"""验证八点独立配置、混合操作、区域隔离及周期预算边界。"""
 from dataclasses import replace
 import json
 import struct
@@ -81,23 +81,9 @@ class IndependentPointTests(unittest.TestCase):
                          dict(operation='write-multiple', address=10, source=dict(value=2.5))])
         self.assertEqual(SyntheticSource(config).sample(0), (None, 2.5))
 
-    def test_legacy_shared_slave_expands_into_independent_banks_without_enabling_writes(self):
-        config = TaskConfig.from_mapping(dict(schema_version=3, mode='rtu-slave', serial=dict(port='TEST'),
-            byte_order='B3412', points=[dict(source=dict(kind='sine', value=10, amplitude=2))]))
-        self.assertEqual(config.access_mode, 'read-only')
-        holding, input_point = config.enabled_points
-        self.assertEqual((holding.area, holding.source.kind, holding.source.value), ('holding', 'constant', 10))
-        self.assertEqual((input_point.area, input_point.source.kind), ('input', 'sine'))
-        self.assertEqual(holding.byte_order, 'B3412')
-        self.assertEqual(input_point.byte_order, 'B3412')
-        self.assertEqual(TaskConfig.from_mapping(json.loads(json.dumps(config.to_mapping()))), config)
 
-    def test_legacy_master_lifts_global_operation_and_encoding_to_each_point(self):
-        config = TaskConfig.from_mapping(dict(schema_version=3, mode='rtu-master', serial=dict(port='TEST'),
-            master_operation='read-input', byte_order='B4321', points=[dict(address=0), dict(address=2)]))
-        self.assertTrue(all(point.operation == 'read-input' and point.byte_order == 'B4321'
-                            for point in config.enabled_points))
-        self.assertEqual(TaskConfig.from_mapping(json.loads(json.dumps(config.to_mapping()))), config)
+
+
 
     def test_disabled_unknown_drafts_remain_inert_and_roundtrip(self):
         config = slave([dict(address=0), dict(enabled=False, data_type='future', byte_order='unused',
@@ -169,20 +155,3 @@ class IndependentPointTests(unittest.TestCase):
             function=4, registers=[0x3fa0, 0], quality='submitted', sampled_s=0)))
         rows = live.snapshot(0, 'running')['rows']
         self.assertEqual([(row['point'], row['value']) for row in rows], [(1, 1.25)])
-
-
-    def test_legacy_form_draft_replicates_edits_into_both_new_areas(self):
-        from modbus_dev.domain.migration import migrate_draft_values
-        base = dict(schema_version=3, mode='tcp-slave', master_operation='read-input',
-                    points=[dict(source=dict(kind='sine', value=1))])
-        config = TaskConfig.from_mapping(base)
-        values = {'byte_order': 'B4321', 'points.0.enabled': True,
-                  'points.0.data_type': 'float32', 'points.0.byte_order': None,
-                  'points.0.source.kind': 'sine', 'points.0.source.value': '3.5'}
-        migrated = migrate_draft_values(base, values, config)
-        self.assertNotIn('byte_order', migrated)
-        self.assertEqual(migrated['points.0.source.kind'], 'constant')
-        self.assertEqual(migrated['points.1.source.kind'], 'sine')
-        for index in (0, 1):
-            self.assertEqual(migrated[f'points.{index}.source.value'], '3.5')
-            self.assertEqual(migrated[f'points.{index}.byte_order'], 'B4321')

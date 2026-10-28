@@ -12,6 +12,7 @@ from .theme import METRICS
 from .widgets import label
 from .errors import format_error
 from .settings_controller import SettingsController
+from .defaults import default_task_config
 
 
 class Workbench(QMainWindow):
@@ -50,7 +51,7 @@ class Workbench(QMainWindow):
         self.controller.message.connect(self.logs.appendPlainText)
         self.controller.failed.connect(self.error)
         self.controller.completed.connect(self.session_completed)
-        self.apply_config(TaskConfig(mode="tcp-slave", access_mode="read-only", duration_s=0), persist=False)
+        self.apply_config(default_task_config(), persist=False)
         try:
             self.settings.restore()
         except (OSError, ValueError, TypeError, KeyError) as exc:

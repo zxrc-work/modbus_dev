@@ -11,8 +11,10 @@ import time
 import unittest
 from unittest.mock import patch
 
+from config_factory import task_mapping
 from modbus_dev.domain.config import TaskConfig
 from modbus_dev.ui.preferences import PreferenceStore
+from modbus_dev.ui.defaults import SETTINGS_COMPAT_VERSION, default_task_config
 
 
 @unittest.skipUnless(importlib.util.find_spec("PySide6"), "Requires the optional GUI dependency")
@@ -76,11 +78,11 @@ class SettingsTests(unittest.TestCase):
 
     def test_all_configuration_and_language_survive_a_new_process_without_autostart(self):
         w = self.window
-        config = TaskConfig.from_mapping(dict(
-            mode="rtu-master", access_mode="read-write", master_operation="write-multiple",
+        config = TaskConfig.from_mapping(task_mapping(
+            mode="rtu-master", access_mode="read-write", operation="write-multiple",
             serial=dict(port="COM77", baud=31250, parity="E", stop_bits=2, rts_toggle=True),
             host="127.0.0.2", port=2502, unit=17, period_ms=250, timeout_ms=150, duration_s=1.5,
-            policy="strict", byte_order="B4321", readback_every=2, read_function=3,
+            policy="strict", byte_order="B4321", readback_every=2,
             schedule_tolerance_percent=15, logging=dict(max_files=7), points=[
                 dict(name="温度", address=10, source=dict(kind="constant", value=12.5)),
                 dict(name="压力", address=20, source=dict(kind="sine", value=3, amplitude=2, frequency_hz=.5)),
@@ -138,6 +140,55 @@ w.close()
             restored.close()
             restored.deleteLater()
         self.assertEqual(self.store.path.read_bytes(), before)
+
+    def test_incompatible_settings_reset_on_cold_start_but_keep_results(self):
+        # 新进程覆盖语言初始化先于主窗口恢复的真实顺序，不能仅测试内存重置。
+        output = Path(self.root.name) / 'previous results'
+        output.mkdir()
+        evidence = output / 'history.json'
+        evidence.write_text('do not delete', encoding='utf-8')
+        script = '''
+import json, sys
+from modbus_dev.gui import Workbench, create_application
+app = create_application(preferences_path=sys.argv[1])
+w = Workbench()
+print(json.dumps(dict(config=w.configuration().to_mapping(), output=w.output.text(),
+    language=app.language_manager.mode, active=w.active(), logs=w.logs.toPlainText())))
+w.close()
+'''
+        for version in (None, SETTINGS_COMPAT_VERSION - 1):
+            data = dict(schema_version=1, language='en', session=dict(
+                configuration=dict(schema_version=1, base_config={'schema_version': 3},
+                                   values={'readback_every': 'unfinished'}), output_directory=str(output)))
+            if version is not None:
+                data['config_compat_version'] = version
+            self.store.path.write_text(json.dumps(data), encoding='utf-8')
+            with self.subTest(version=version):
+                child = subprocess.run([sys.executable, '-c', script, str(self.store.path)],
+                    env=dict(os.environ, QT_QPA_PLATFORM='offscreen'), capture_output=True,
+                    text=True, encoding='utf-8', timeout=20)
+                self.assertEqual(child.returncode, 0, child.stdout + child.stderr)
+                restored = json.loads(child.stdout)
+                self.assertEqual(restored['config'], json.loads(json.dumps(default_task_config().to_mapping())))
+                self.assertEqual(restored['language'], 'system')
+                self.assertEqual(restored['output'], str(output))
+                self.assertFalse(restored['active'])
+                self.assertEqual(restored['logs'], '')
+                self.assertEqual(evidence.read_text(), 'do not delete')
+                self.assertEqual(json.loads(self.store.path.read_text())['config_compat_version'], SETTINGS_COMPAT_VERSION)
+
+    def test_import_old_task_reports_incompatibility_without_changing_current_draft(self):
+        from PySide6.QtWidgets import QFileDialog
+        path = Path(self.root.name) / 'old-task.json'
+        path.write_text(json.dumps(dict(schema_version=3, mode='rtu-master', master_operation='read-input')))
+        before = self.window.editor.capture_draft()
+        with patch.object(QFileDialog, 'getOpenFileName', return_value=(str(path), 'JSON')), \
+                patch.object(self.window, 'error') as error, patch.object(self.store, 'save') as save:
+            self.window.load()
+            error.assert_called_once()
+            self.assertEqual(error.call_args.args[0].reason, 'config_version')
+            save.assert_not_called()
+        self.assertEqual(self.window.editor.capture_draft(), before)
 
     def test_language_and_output_changes_preserve_the_entire_saved_configuration(self):
         self.window.fields["unit"].setText("27")
@@ -230,7 +281,7 @@ w.close()
         self.assertEqual(w.fields["unit"].text(), "8")
         self.assertIsNotNone(w.settings.last_error)
 
-    def test_legacy_language_settings_restore_without_rewriting_the_file(self):
+    def test_current_language_settings_restore_without_rewriting_the_file(self):
         from modbus_dev.gui import Workbench
         self.store.save(dict(language="en", future_setting="keep"))
         before = self.store.path.read_bytes()

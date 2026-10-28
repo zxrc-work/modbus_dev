@@ -6,6 +6,7 @@ import unittest
 
 from modbus_dev.application.control import Control
 from modbus_dev.application.session import SessionRunner
+from config_factory import task_mapping
 from modbus_dev.domain.config import TaskConfig
 from modbus_dev.engines.rtu_slave import RtuSlaveEngine
 
@@ -78,7 +79,9 @@ class Port:
 
 
 def config(**options):
-    return TaskConfig.from_mapping(dict(mode="rtu-slave", serial=dict(port="TEST"), **options))
+    if "points" not in options:
+        options.setdefault("areas", ("holding", "input"))
+    return TaskConfig.from_mapping(task_mapping(mode="rtu-slave", serial=dict(port="TEST"), **options))
 
 
 class RtuSlaveWireTests(unittest.TestCase):
@@ -181,7 +184,7 @@ class RtuSlaveSessionTests(unittest.TestCase):
         orders = {"B1234": (0, 1, 2, 3), "B4321": (3, 2, 1, 0),
                   "B2143": (1, 0, 3, 2), "B3412": (2, 3, 0, 1)}
         for order, indexes in orders.items():
-            result, ports, _, _ = self.run_session(packets=[(.01, read), (.21, read)], byte_order=order,
+            result, ports, _, _ = self.run_session(packets=[(.01, read), (.21, read)], byte_order=order, areas=("input",),
                                                  source=dict(kind="sine", value=10, amplitude=1, frequency_hz=1.25))
             self.assertEqual(result["exit_code"], 0)
             expected = [frame(b"\x01\x04\x04" + bytes(struct.pack(">f", value)[i] for i in indexes))
@@ -193,10 +196,10 @@ class RtuSlaveSessionTests(unittest.TestCase):
                    (.11, frame(b"\x01\x04\x00\x04\x00\x02")),
                    (.21, frame(b"\x01\x04\x00\x06\x00\x02"))]
         result, ports, _, _ = self.run_session(packets=packets, points=[
-            dict(address=6, source=dict(kind="sine", value=10, amplitude=2, frequency_hz=1.25)),
-            dict(address=0, source=dict(value=12.5)),
+            dict(area="input", address=6, source=dict(kind="sine", value=10, amplitude=2, frequency_hz=1.25)),
+            dict(area="holding", address=0, source=dict(value=12.5)),
             dict(enabled=False, address=4, source=dict(value=999)),
-            dict(address=2, source=dict(value=-3.5))])
+            dict(area="holding", address=2, source=dict(value=-3.5))])
         self.assertEqual(result["exit_code"], 0)
         self.assertEqual([data for _, data in ports[0].writes], [
             frame(b"\x01\x03\x08" + struct.pack(">ff", 12.5, -3.5)),

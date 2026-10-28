@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from modbus_dev.application.session import check_capabilities
+from config_factory import task_mapping
 from modbus_dev.domain.config import TaskConfig
 from modbus_dev.domain.events import ConfigurationError
 from modbus_dev.domain.operations import cycle_requests
@@ -21,12 +22,12 @@ import test_rtu_session
 def master(operation="read-input", **options):
     if operation == 'write-single':
         options.setdefault('points', [dict(data_type='uint16')])
-    return TaskConfig.from_mapping(dict(mode="rtu-master", master_operation=operation,
+    return TaskConfig.from_mapping(task_mapping(mode="rtu-master", operation=operation,
                                        serial=dict(port="TEST", baud=115200), **options))
 
 
 class ParameterTests(unittest.TestCase):
-    def test_reads_ignore_source_values_in_both_config_versions(self):
+    def test_reads_ignore_unused_point_source_values(self):
         source = dict(kind="dyn", value="unused", amplitude=-1, frequency_hz="unused",
                       path="", channels="unused")
         for operation in ("read-input", "read-holding"):
@@ -52,8 +53,8 @@ class ParameterTests(unittest.TestCase):
             with self.subTest(operation=operation), patch("modbus_dev.application.session.SyntheticSource",
                     side_effect=AssertionError("source construction")):
                 result, peer, events = helper.exercise(duration=.3, delay=.005,
-                    master_operation=operation, source=dict(kind="dyn", value="unused", channels="unused"),
-                    readback_every="unused", read_function="unused")
+                    operation=operation, source=dict(kind="dyn", value="unused", channels="unused"),
+                    readback_every="unused")
                 self.assertEqual(result["exit_code"], 0, result)
                 self.assertEqual(result["counters"]["read"], 3)
                 self.assertNotIn("source_sample", {event["code"] for event in events})
@@ -61,16 +62,16 @@ class ParameterTests(unittest.TestCase):
                                     for _, packet in peer.writes))
 
     def test_inactive_connection_and_master_fields_do_not_block_validation(self):
-        check_capabilities(master(host="", port="unused", readback_every="unused", read_function="unused"))
-        config = TaskConfig.from_mapping(dict(mode="tcp-slave", serial=dict(port="", baud="unused"),
-            master_operation="unused", access_mode="read-only", readback_every="unused",
-            read_function="unused", schedule_tolerance_percent="unused"))
-        check_capabilities(config)
-        config = TaskConfig.from_mapping(dict(mode="rtu-slave", serial=dict(port="TEST"), host="", port="unused",
-            master_operation="unused", readback_every="unused", read_function="unused",
+        check_capabilities(master(host="", port="unused", readback_every="unused"))
+        config = TaskConfig.from_mapping(task_mapping(mode="tcp-slave", serial=dict(port="", baud="unused"),
+            operation="unused", access_mode="read-only", readback_every="unused",
             schedule_tolerance_percent="unused"))
         check_capabilities(config)
-        check_capabilities(master("write-multiple", readback_every=0, read_function="unused"))
+        config = TaskConfig.from_mapping(task_mapping(mode="rtu-slave", serial=dict(port="TEST"), host="", port="unused",
+            operation="unused", readback_every="unused",
+            schedule_tolerance_percent="unused"))
+        check_capabilities(config)
+        check_capabilities(master("write-multiple", readback_every=0))
 
     def test_constant_and_disabled_sources_skip_unused_parameters(self):
         config = TaskConfig.from_mapping(dict(schema_version=4, mode="rtu-slave", serial=dict(port="TEST"), points=[
@@ -81,19 +82,19 @@ class ParameterTests(unittest.TestCase):
         self.assertEqual(SyntheticSource(config).sample(1), (1.25,))
 
     def test_active_source_connection_and_readback_errors_still_fail(self):
-        cases = [dict(master_operation="write-multiple", source=dict(value="invalid")),
-                 dict(master_operation="write-multiple", readback_every=1, read_function=4),
-                 dict(master_operation="write-multiple", readback_every="invalid"),
-                 dict(master_operation="read-input", unit=0),
-                 dict(master_operation="read-input", points=[dict(address=-1)])]
+        cases = [dict(operation="write-multiple", source=dict(value="invalid")),
+                 dict(operation="write-multiple", readback_every=1, read_function=4),
+                 dict(operation="write-multiple", readback_every="invalid"),
+                 dict(operation="read-input", unit=0),
+                 dict(operation="read-input", points=[dict(address=-1)])]
         for data in cases:
             with self.subTest(data=data), self.assertRaises(ConfigurationError):
-                TaskConfig.from_mapping(dict(mode="rtu-master", serial=dict(port="TEST", baud=115200), **data))
+                TaskConfig.from_mapping(task_mapping(mode="rtu-master", serial=dict(port="TEST", baud=115200), **data))
         with self.assertRaises(ConfigurationError):
-            TaskConfig.from_mapping(dict(mode="rtu-slave", serial=dict(port="TEST"), access_mode="read-only",
+            TaskConfig.from_mapping(task_mapping(mode="rtu-slave", serial=dict(port="TEST"), access_mode="read-only",
                 source=dict(kind="sine", frequency_hz=100)))
         with self.assertRaises(ConfigurationError):
-            TaskConfig.from_mapping(dict(mode="tcp-slave", port="invalid"))
+            TaskConfig.from_mapping(task_mapping(mode="tcp-slave", port="invalid"))
 
 
 @unittest.skipUnless(importlib.util.find_spec("PySide6"), "需要可选 Qt 依赖")
@@ -187,7 +188,7 @@ class ParameterGuiTests(unittest.TestCase):
         self.assertNotIn("read_function", self.window.fields)
         self.assertFalse(self.window.editor.readback_note.isHidden())
         self.assertIn("FC03", self.window.editor.readback_note.text())
-        self.assertEqual(self.window.configuration().read_function, 3)
+        self.assertEqual(cycle_requests(self.window.configuration(), slot=0)[-1].function, 3)
         if not self.window.editor.parameter_usage().rts_supported:
             self.assertTrue(self.window.editor.rts.isHidden())
 
@@ -252,7 +253,7 @@ class ParameterGuiTests(unittest.TestCase):
             self.window.configuration()
 
     def test_tcp_ignores_serial_drafts_but_checks_its_own_port(self):
-        self.window.apply_config(TaskConfig.from_mapping(dict(mode="tcp-slave",
+        self.window.apply_config(TaskConfig.from_mapping(task_mapping(mode="tcp-slave",
             serial=dict(baud="unfinished", rts_toggle="unused"))))
         self.window.fields["schedule_tolerance_percent"].setText("unfinished")
         self.window.configuration()
@@ -297,10 +298,10 @@ class ParameterGuiTests(unittest.TestCase):
         cases = [(master(), {"input:0:rx"}),
                  (master("write-multiple"), {"holding:0:tx"}),
                  (master("write-multiple", readback_every=1), {"holding:0:tx", "holding:0:rx"}),
-                 (TaskConfig.from_mapping(dict(mode="rtu-slave", serial=dict(port="TEST"))),
-                  {"holding:0:tx", "input:1:tx"}),
-                 (TaskConfig.from_mapping(dict(mode="rtu-slave", serial=dict(port="TEST"), access_mode="read-write")),
-                  {"holding:0:tx", "holding:0:rx", "input:1:tx"})]
+                 (TaskConfig.from_mapping(task_mapping(mode="rtu-slave", serial=dict(port="TEST"))),
+                  {"input:0:tx"}),
+                 (TaskConfig.from_mapping(task_mapping(mode="rtu-slave", serial=dict(port="TEST"), access_mode="read-write")),
+                  {"input:0:tx"})]
         for config, expected in cases:
             with self.subTest(config=config):
                 self.window.apply_config(config)

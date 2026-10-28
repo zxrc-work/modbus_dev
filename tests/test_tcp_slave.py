@@ -12,6 +12,7 @@ import unittest
 
 from modbus_dev.application.session import SessionRunner
 from modbus_dev.application.control import Control
+from config_factory import task_mapping
 from modbus_dev.domain.config import TaskConfig
 from modbus_dev.engines.tcp_slave import TcpSlaveEngine
 
@@ -41,7 +42,7 @@ class TcpSlaveTests(unittest.TestCase):
         self.stop = threading.Event()
         self.ready = threading.Event()
         self.result = None
-        config = TaskConfig.from_mapping(dict(mode="tcp-slave", duration_s=0,
+        config = TaskConfig.from_mapping(task_mapping(mode="tcp-slave", areas=("holding", "input"), duration_s=0,
                                              addresses=[0, 2, 6], source=dict(value=12.5)))
         def factory(c, control, emit):
             self.engine = TcpSlaveEngine(replace(c, port=0), control, emit)
@@ -153,7 +154,7 @@ class TcpLifecycleTests(unittest.TestCase):
     def test_independent_points_and_disabled_holes_over_real_tcp(self):
         stop, ready = threading.Event(), threading.Event()
         engines, results = [], []
-        config = TaskConfig.from_mapping(dict(mode="tcp-slave", duration_s=0, points=[
+        config = TaskConfig.from_mapping(task_mapping(mode="tcp-slave", areas=("holding", "input"), duration_s=0, points=[
             dict(address=6, source=dict(value=3.75)),
             dict(address=0, source=dict(value=12.5)),
             dict(enabled=False, address=4, source=dict(value=999)),

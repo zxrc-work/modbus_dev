@@ -1,4 +1,4 @@
-"""验证独立测点、旧版配置迁移、禁用语义与每点波形校验。"""
+"""验证独立测点、配置版本拒绝、禁用语义与每点波形校验。"""
 import json
 import unittest
 
@@ -23,19 +23,6 @@ class PointTests(unittest.TestCase):
         self.assertEqual(SyntheticSource(config).sample(0), values)
         self.assertEqual(SyntheticSource(config).sample(100), values)
 
-    def test_legacy_config_expands_shared_source_and_saves_only_new_schema(self):
-        config = TaskConfig.from_mapping(dict(schema_version=1, mode="tcp-slave", addresses=[6, 0],
-                                             source=dict(kind="sine", value=10, amplitude=2, frequency_hz=1)))
-        self.assertEqual(config.schema_version, 4)
-        self.assertEqual(len(config.points), MAX_POINTS)
-        self.assertEqual(config.addresses, (6, 0, 6, 0))
-        self.assertEqual(config.points[0].source, config.points[1].source)
-        self.assertEqual(config.points[2].area, "input")
-        self.assertFalse(config.points[4].enabled)
-        data = json.loads(json.dumps(config.to_mapping()))
-        self.assertNotIn("addresses", data)
-        self.assertNotIn("source", data)
-        self.assertEqual(TaskConfig.from_mapping(data), config)
 
     def test_unsorted_points_independently_sample_the_same_clock(self):
         config = configuration([
@@ -49,7 +36,7 @@ class PointTests(unittest.TestCase):
         self.assertAlmostEqual(values[0], -3.5)
         self.assertAlmostEqual(values[1], 10)
         self.assertAlmostEqual(values[2], 3)
-        requests = write_requests(config.addresses, source.sample(0), config.byte_order)
+        requests = write_requests(config.addresses, source.sample(0), "B1234")
         self.assertEqual([(r.address, r.count) for r in requests], [(0, 4), (6, 2)])
         self.assertEqual(requests[0].registers, (0x4120, 0, 0xbf80, 0))
         self.assertEqual(requests[1].registers, (0xc060, 0))

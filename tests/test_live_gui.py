@@ -132,7 +132,7 @@ app = create_application(language="zh_CN")
 window = Workbench(remember_settings=False)
 window.resize(1280, 900)
 window.apply_config(TaskConfig.from_mapping(dict(mode='rtu-master', access_mode='read-only',
-    master_operation='read-input', serial=dict(port='TEST', baud=115200), duration_s=0)))
+    points=[dict(operation='read-input')], serial=dict(port='TEST', baud=115200), duration_s=0)))
 window.show()
 app.processEvents()
 assert window.configuration().point_usage(window.configuration().points[0]).operation == 'read-input'

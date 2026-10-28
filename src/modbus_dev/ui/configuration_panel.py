@@ -14,7 +14,7 @@ from .theme import METRICS
 from .widgets import CheckBox, ComboBox, SerialPortComboBox, label, refresh_style
 from .texts import CHOICE_LABELS, SCHEDULE_LATE_HELP, SLAVE_AREAS_HELP, INPUT_PERIOD_HELP, MASTER_PERIOD_HELP
 from .form_state import FormState, programmatic_changes
-from .context_choices import ContextComboBox
+from .defaults import default_task_config
 
 
 class ConfigurationPanel(QFrame):
@@ -31,7 +31,7 @@ class ConfigurationPanel(QFrame):
         self._busy = False
         self._applying = False
         self.configuration_valid = True
-        self.base_config = TaskConfig(mode="tcp-slave", access_mode="read-only", duration_s=0).to_mapping()
+        self.base_config = default_task_config().to_mapping()
         self._build_ui()
         self.fields["mode"].currentIndexChanged.connect(self.mode_changed)
         self.fields["access_mode"].currentIndexChanged.connect(self.operation_changed)
@@ -55,8 +55,7 @@ class ConfigurationPanel(QFrame):
             raise ValueError("Unsupported saved configuration draft")
         config = TaskConfig.from_mapping(draft["base_config"])
         check_capabilities(config)
-        from ..domain.migration import migrate_draft_values
-        values = migrate_draft_values(draft["base_config"], draft["values"], config)
+        values = draft["values"]
         self.form_state.validate(values)
         self.apply_config(config)
         self.form_state.restore(values)
@@ -114,7 +113,6 @@ class ConfigurationPanel(QFrame):
             form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
             for key, caption, choices in rows:
                 widget = (SerialPortComboBox() if key == "serial.port" else
-                          ContextComboBox() if key == "master_operation" else
                           ComboBox() if choices else QLineEdit())
                 if choices:
                     for value in choices:
@@ -200,8 +198,6 @@ class ConfigurationPanel(QFrame):
 
     def text(self, key):
         field = self.fields[key]
-        if isinstance(field, ContextComboBox):
-            return str(field.draft_value())
         if isinstance(field, QComboBox) and field.isEditable():
             return field.currentText().strip()
         return str(field.currentData()) if isinstance(field, QComboBox) else field.text().strip()
@@ -230,8 +226,6 @@ class ConfigurationPanel(QFrame):
             if isinstance(field, QComboBox) and field.isEditable():
                 field.setCurrentIndex(field.findText(text, Qt.MatchExactly))
                 field.setEditText(text)
-            elif isinstance(field, ContextComboBox):
-                field.set_draft_value(text)
             elif isinstance(field, QComboBox):
                 field.setCurrentIndex(field.findData(text))
             else:
@@ -246,7 +240,7 @@ class ConfigurationPanel(QFrame):
     def configuration(self, *, validate=True):
         data = json.loads(json.dumps(self.base_config))
         usage = self.parameter_usage()
-        integers = {"unit", "port", "period_ms", "timeout_ms", "readback_every", "read_function",
+        integers = {"unit", "port", "period_ms", "timeout_ms",
                     "serial.baud", "serial.stop_bits", "logging.max_files"}
         floats = {"duration_s", "schedule_tolerance_percent"}
         for key in self.fields:

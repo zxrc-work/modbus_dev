@@ -11,6 +11,8 @@ import threading
 import time
 import unittest
 
+from config_factory import task_mapping
+
 
 @unittest.skipUnless(os.name == "posix", "PTY 联调只用于 POSIX；Windows 需另验真实 COM")
 class DuplexTests(unittest.TestCase):
@@ -42,19 +44,21 @@ class DuplexTests(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
-                common = dict(schema_version=2, serial=dict(baud=115200), access_mode="read-write",
+                common = dict(serial=dict(baud=115200), access_mode="read-write",
                               unit=1, period_ms=100, timeout_ms=80, points=[dict(address=0,
                               name="压力", source=dict(value=12.5))])
                 if operation == 'write-single' and not points:
                     common['points'] = [dict(address=0, data_type='uint16', source=dict(value=12))]
                 slave = dict(common, mode="rtu-slave", duration_s=0,
                              serial=dict(port=ports[int(reverse)], baud=115200))
-                master = dict(common, mode="rtu-master", duration_s=.4, master_operation=operation,
+                master = dict(common, mode="rtu-master", duration_s=.4, operation=operation,
                               serial=dict(port=ports[1 - int(reverse)], baud=115200),
                               readback_every=int(operation.startswith("write")),
                               points=[dict(address=0, data_type="uint16", source=dict(value=1))] if operation == "write-single" else [dict(address=0, source=dict(value=1.25))])
                 if points is not None:
                     slave["points"] = master["points"] = points
+                slave = task_mapping(**slave, areas=("holding", "input"))
+                master = task_mapping(**master)
                 for name, config in (("slave", slave), ("master", master)):
                     (root / f"{name}.json").write_text(json.dumps(config))
                 process = subprocess.Popen([sys.executable, "-m", "modbus_dev", "worker", str(root / "slave.json"),

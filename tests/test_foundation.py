@@ -8,6 +8,7 @@ import threading
 import unittest
 
 from modbus_dev.cli import main
+from config_factory import task_mapping
 from modbus_dev.domain.config import TaskConfig, load_config
 from modbus_dev.domain.events import ConfigurationError, Event
 from modbus_dev.domain.wire import minimum_cycle_ms
@@ -16,7 +17,7 @@ from modbus_dev.reporting.journal import Journal, LogWriteError
 
 
 def mapping(**overrides):
-    return dict(serial=dict(port="COM11"), **overrides)
+    return task_mapping(serial=dict(port="COM11"), **overrides)
 
 
 class ConfigTests(unittest.TestCase):
@@ -56,7 +57,7 @@ class ConfigTests(unittest.TestCase):
 
     def test_parity_and_stop_bits_change_wire_budget(self):
         one = TaskConfig.from_mapping(mapping())
-        changed = TaskConfig.from_mapping(dict(serial=dict(port="COM11", parity="E", stop_bits=2)))
+        changed = TaskConfig.from_mapping(task_mapping(serial=dict(port="COM11", parity="E", stop_bits=2)))
         self.assertAlmostEqual(minimum_cycle_ms(changed) / minimum_cycle_ms(one), 1.2)
 
     def test_unknown_fields_versions_and_bad_types_rejected(self):

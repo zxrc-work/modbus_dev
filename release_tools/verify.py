@@ -136,7 +136,9 @@ def tcp_exchange(port, pdu, expected):
 def verify_tcp(cli, root, environment):
     cases = []
     port = available_port()
-    config = dict(mode="tcp-slave", port=port, duration_s=0, addresses=[0, 2, 4, 6], source=dict(value=12.5))
+    config = dict(schema_version=4, mode="tcp-slave", port=port, duration_s=0,
+                  points=[dict(area=area, address=address, source=dict(value=12.5))
+                          for area in ("holding", "input") for address in range(0, 8, 2)])
     with ProcessCase(cli, root / "tcp-worker", config, environment) as run:
         run.started()
         for function in (3, 4):

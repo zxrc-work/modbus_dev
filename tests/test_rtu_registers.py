@@ -6,6 +6,7 @@ import unittest
 
 from modbus_dev.application.live import LiveValues, decode_float
 from modbus_dev.application.session import SessionRunner
+from config_factory import task_mapping
 from modbus_dev.domain.config import TaskConfig
 from modbus_dev.domain.events import Event, ConfigurationError
 from modbus_dev.domain.operations import cycle_requests
@@ -21,7 +22,9 @@ import test_rtu_session
 
 
 def config(mode="rtu-slave", **options):
-    return TaskConfig.from_mapping(dict(mode=mode, serial=dict(port="TEST", baud=115200),
+    if mode != "rtu-master":
+        options.setdefault("areas", ("holding", "input"))
+    return TaskConfig.from_mapping(task_mapping(mode=mode, serial=dict(port="TEST", baud=115200),
                                        access_mode="read-write", **options))
 
 
@@ -49,7 +52,7 @@ class RegisterTests(unittest.TestCase):
         self.assertEqual(bank.response(1, bytes.fromhex("0400010001")), bytes.fromhex("04020000"))
 
     def test_readonly_returns_exception_and_preserves_banks(self):
-        bank = RtuRegisters(TaskConfig.from_mapping(dict(mode="rtu-slave", serial=dict(port="TEST"))),
+        bank = RtuRegisters(TaskConfig.from_mapping(task_mapping(mode="rtu-slave", areas=("holding", "input"), serial=dict(port="TEST"))),
                             Clock(), lambda _: None)
         bank.publish({0: 0, 1: 0})
         for request in (bytes.fromhex("0600001234"), bytes.fromhex("1000000002043fa00000")):
@@ -153,30 +156,30 @@ class OperationTests(unittest.TestCase):
     def test_each_operation_builds_correct_requests_and_budgets(self):
         for operation, functions in (("read-holding", [3]), ("read-input", [4]),
                                      ("write-single", [6]), ("write-multiple", [16])):
-            settings = config("rtu-master", master_operation=operation,
+            settings = config("rtu-master", operation=operation,
                               points=[dict(data_type="uint16" if operation == "write-single" else "float32")])
             requests = cycle_requests(settings, [1])
             self.assertEqual([r.function for r in requests], functions)
             if functions[0] in (3, 4):
                 self.assertFalse(requests[0].registers)
-        settings = config("rtu-master", master_operation="write-single", readback_every=1, points=[dict(data_type="uint16")])
+        settings = config("rtu-master", operation="write-single", readback_every=1, points=[dict(data_type="uint16")])
         self.assertEqual([r.function for r in cycle_requests(settings, [1], True)], [6, 3])
 
     def test_permissions_and_readback_validation(self):
         for operation in ("write-single", "write-multiple"):
             with self.assertRaises(ConfigurationError):
-                TaskConfig.from_mapping(dict(mode="rtu-master", serial=dict(port="TEST"),
-                                             access_mode="read-only", master_operation=operation))
-        settings = config("rtu-master", master_operation="read-input", readback_every=1)
+                TaskConfig.from_mapping(task_mapping(mode="rtu-master", serial=dict(port="TEST"),
+                                             access_mode="read-only", operation=operation))
+        settings = config("rtu-master", operation="read-input", readback_every=1)
         self.assertFalse(settings.usage.readback)
         with self.assertRaises(ConfigurationError):
             config("rtu-master", readback_every=1, read_function=4)
         with self.assertRaises(ConfigurationError):
-            config("rtu-master", master_operation=[])
+            config("rtu-master", operation=[])
 
     def test_fc06_codec_echo_validation(self):
         clock = Clock()
-        settings = config("rtu-master", master_operation="write-single", points=[dict(data_type="uint16")])
+        settings = config("rtu-master", operation="write-single", points=[dict(data_type="uint16")])
         request = Request(6, 0, 1, (0x3fa0,))
         class EchoPeer(Peer):
             def write(self, data):
@@ -192,7 +195,7 @@ class OperationTests(unittest.TestCase):
 
     def test_read_polling_does_not_write_or_compare_with_local_source(self):
         helper = test_rtu_session.SessionTests()
-        result, peer, events = helper.exercise(duration=.3, master_operation="read-input",
+        result, peer, events = helper.exercise(duration=.3, operation="read-input",
                                               source=dict(value=999), delay=.005)
         self.assertEqual(result["exit_code"], 0)
         self.assertEqual(result["counters"]["read"], 3)

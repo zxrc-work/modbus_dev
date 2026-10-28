@@ -1,13 +1,26 @@
 {
-  "schema_version": 1,
+  "schema_version": 4,
   "mode": "rtu-slave",
   "policy": "continuous",
-  "serial": {"port": "COM11", "baud": 9600, "parity": "N", "stop_bits": 1},
+  "serial": {
+    "port": "COM11",
+    "baud": 9600,
+    "parity": "N",
+    "stop_bits": 1
+  },
   "unit": 1,
-  "addresses": [0, 2, 4, 6],
-  "byte_order": "B1234",
   "period_ms": 100,
   "timeout_ms": 80,
   "duration_s": 0,
-  "source": {"kind": "sine", "value": 10, "amplitude": 1, "frequency_hz": 0.5}
+  "access_mode": "read-only",
+  "points": [
+    {"enabled": true, "name": "", "address": 0, "source": {"kind": "constant", "value": 10}, "data_type": "float32", "byte_order": "B1234", "area": "holding"},
+    {"enabled": true, "name": "", "address": 2, "source": {"kind": "constant", "value": 10}, "data_type": "float32", "byte_order": "B1234", "area": "holding"},
+    {"enabled": true, "name": "", "address": 4, "source": {"kind": "constant", "value": 10}, "data_type": "float32", "byte_order": "B1234", "area": "holding"},
+    {"enabled": true, "name": "", "address": 6, "source": {"kind": "constant", "value": 10}, "data_type": "float32", "byte_order": "B1234", "area": "holding"},
+    {"enabled": true, "name": "", "address": 0, "source": {"kind": "sine", "value": 10, "amplitude": 1, "frequency_hz": 0.5}, "data_type": "float32", "byte_order": "B1234", "area": "input"},
+    {"enabled": true, "name": "", "address": 2, "source": {"kind": "sine", "value": 10, "amplitude": 1, "frequency_hz": 0.5}, "data_type": "float32", "byte_order": "B1234", "area": "input"},
+    {"enabled": true, "name": "", "address": 4, "source": {"kind": "sine", "value": 10, "amplitude": 1, "frequency_hz": 0.5}, "data_type": "float32", "byte_order": "B1234", "area": "input"},
+    {"enabled": true, "name": "", "address": 6, "source": {"kind": "sine", "value": 10, "amplitude": 1, "frequency_hz": 0.5}, "data_type": "float32", "byte_order": "B1234", "area": "input"}
+  ]
 }

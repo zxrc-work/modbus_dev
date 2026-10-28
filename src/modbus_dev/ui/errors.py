@@ -16,12 +16,10 @@ TEMPLATES = {
     "must be positive and below output Nyquist frequency": tr("Frequency must be positive and below the output Nyquist frequency."),
     "signal exceeds finite float32 range": tr("The signal exceeds the finite float32 range."),
     "provide one unique channel per point": tr("Provide one unique channel per point."),
-    "independent points require schema_version=2 or 3": tr("Independent points require schema version 2 or 3."),
-    "schema_version>=2 uses points instead of addresses/source": tr("Schema versions 2 and 3 use points instead of addresses/source."),
+    "config_version": tr("Incompatible configuration version. Only version {current} is supported; recreate the configuration."),
     "integer_source": tr("Integer points support constant and triangle sources only."),
     "triangle_bounds": tr("The upper bound must be greater than the lower bound."),
     "integer_value": tr("Enter an integral value; integer points do not round fractional values."),
-    "address_count": tr("Provide 1 to {maximum} float32 point addresses."),
     "point_count": tr("Provide 1 to {maximum} point configurations."),
     "readonly_write": tr("A read-only master cannot perform writes."),
     "no_enabled_points": tr("Enable at least one point"),
@@ -38,7 +36,7 @@ FIELD_NAMES = {
     "serial.port": tr("Serial port"), "serial.baud": tr("Baud rate"), "serial.parity": tr("Parity"),
     "serial.stop_bits": tr("Stop bits"), "unit": tr("Unit ID"), "host": tr("Bind address"), "port": tr("Port"),
     "period_ms": tr("Data period (ms)"), "timeout_ms": tr("I/O timeout (ms)"), "duration_s": tr("Duration (s)"),
-    "points": tr("Points"), "master_operation": tr("Cycle operation"), "byte_order": tr("Byte order"),
+    "points": tr("Points"), "schema_version": tr("Configuration version"),
     "logging.max_files": tr("Maximum log segments"),
 }
 

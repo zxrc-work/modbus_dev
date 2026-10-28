@@ -1,14 +1,15 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "mode": "tcp-slave",
   "host": "127.0.0.1",
   "port": 1502,
   "unit": 1,
   "period_ms": 500,
   "duration_s": 0,
+  "access_mode": "read-only",
   "points": [
-    {"name": "整数三角波", "address": 0, "data_type": "int16", "byte_order": "B12", "source": {"kind": "triangle", "lower": -3, "upper": 3}},
-    {"name": "无符号三角波", "address": 1, "data_type": "uint32", "source": {"kind": "triangle", "lower": 0, "upper": 5}},
-    {"name": "浮点三角波", "address": 3, "data_type": "float32", "source": {"kind": "triangle", "lower": 0.25, "upper": 2.75}}
+    {"enabled": true, "name": "整数三角波", "address": 0, "source": {"kind": "triangle", "lower": -3, "upper": 3}, "data_type": "int16", "byte_order": "B12", "area": "input"},
+    {"enabled": true, "name": "无符号三角波", "address": 1, "source": {"kind": "triangle", "lower": 0, "upper": 5}, "data_type": "uint32", "byte_order": "B1234", "area": "input"},
+    {"enabled": true, "name": "浮点三角波", "address": 3, "source": {"kind": "triangle", "lower": 0.25, "upper": 2.75}, "data_type": "float32", "byte_order": "B1234", "area": "input"}
   ]
 }

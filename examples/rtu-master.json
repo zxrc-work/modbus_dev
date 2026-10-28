@@ -1,13 +1,19 @@
 {
-  "schema_version": 1,
+  "schema_version": 4,
   "mode": "rtu-master",
   "policy": "continuous",
-  "serial": {"port": "COM11", "baud": 9600, "parity": "N", "stop_bits": 1},
+  "serial": {
+    "port": "COM11",
+    "baud": 9600,
+    "parity": "N",
+    "stop_bits": 1
+  },
   "unit": 1,
-  "addresses": [0],
   "period_ms": 100,
   "schedule_tolerance_percent": 10,
   "timeout_ms": 80,
   "duration_s": 120,
-  "source": {"kind": "constant", "value": 1.25}
+  "points": [
+    {"enabled": true, "name": "", "address": 0, "source": {"kind": "constant", "value": 1.25}, "data_type": "float32", "byte_order": "B1234", "area": "holding", "operation": "write-multiple", "readback_every": 0}
+  ]
 }

@@ -1,16 +1,19 @@
 {
-  "schema_version": 2,
+  "schema_version": 4,
   "mode": "rtu-master",
   "access_mode": "read-write",
-  "master_operation": "write-multiple",
   "policy": "continuous",
-  "serial": {"port": "COM11", "baud": 115200, "parity": "N", "stop_bits": 1},
+  "serial": {
+    "port": "COM11",
+    "baud": 115200,
+    "parity": "N",
+    "stop_bits": 1
+  },
   "unit": 1,
-  "points": [{"name": "设定值", "address": 0, "source": {"kind": "constant", "value": 1.25}}],
-  "byte_order": "B1234",
   "period_ms": 100,
   "timeout_ms": 80,
-  "readback_every": 1,
-  "read_function": 3,
-  "duration_s": 0
+  "duration_s": 0,
+  "points": [
+    {"enabled": true, "name": "设定值", "address": 0, "source": {"kind": "constant", "value": 1.25}, "data_type": "float32", "byte_order": "B1234", "area": "holding", "operation": "write-multiple", "readback_every": 1}
+  ]
 }

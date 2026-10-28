@@ -23,7 +23,7 @@ def cycle_requests(config, values=(), readback=False, *, slot=None):
         for frequency in frequencies:
             group_points = [point for point in selected if config.point_readback(point) == frequency]
             group_values = [value_map.get(id(point), 0) for point in group_points]
-            groups = point_write_requests(group_points, group_values, config.byte_order)
+            groups = point_write_requests(group_points, group_values)
             if function == 6:
                 writes = [Request(6, group.address + i, 1, (word,))
                           for group in groups for i, word in enumerate(group.registers)]

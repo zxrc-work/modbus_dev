@@ -10,6 +10,7 @@ import unittest
 
 from modbus_dev.application.live import LiveValues
 from modbus_dev.application.session import SessionRunner
+from config_factory import task_mapping
 from modbus_dev.domain.config import TaskConfig, load_config
 from modbus_dev.domain.events import ConfigurationError, Event
 from modbus_dev.domain.mapping import point_write_requests
@@ -30,8 +31,7 @@ VECTORS = json.loads((Path(__file__).parent / "fixtures/numeric-vectors.json").r
 
 
 def config(points, mode="tcp-slave", **options):
-    version = options.pop("schema_version", 4)
-    return TaskConfig.from_mapping(dict(schema_version=version, mode=mode, serial=dict(port="TEST", baud=115200), points=points, **options))
+    return TaskConfig.from_mapping(task_mapping(mode=mode, serial=dict(port="TEST", baud=115200), points=points, **options))
 
 
 def mixed_points():
@@ -128,14 +128,14 @@ class NumericConfigurationTests(unittest.TestCase):
                                    ("uint32", "4294967295.00000001"),
                                    ("int32", "123.0000000000000001")):
                 with self.subTest(data_type=data_type, raw=raw):
-                    path.write_text('{"mode":"tcp-slave","points":[{"data_type":"' + data_type
+                    path.write_text('{"schema_version":4,"mode":"tcp-slave","points":[{"data_type":"' + data_type
                                     + '","source":{"value":' + raw + '}}]}', encoding="utf-8")
                     with self.assertRaises(ConfigurationError) as failure:
                         load_config(path)
                     self.assertEqual(failure.exception.path, "points[0].source.value")
             for raw, expected in (("65535", 65535), ("65535.0", 65535), ("6.5535e4", 65535), ("0e-400", 0)):
                 with self.subTest(raw=raw):
-                    path.write_text('{"mode":"tcp-slave","points":[{"data_type":"uint16","source":{"value":'
+                    path.write_text('{"schema_version":4,"mode":"tcp-slave","points":[{"data_type":"uint16","source":{"value":'
                                     + raw + '}}]}', encoding="utf-8")
                     settings = load_config(path)
                     self.assertEqual(settings.points[0].source.value, expected)
@@ -144,30 +144,23 @@ class NumericConfigurationTests(unittest.TestCase):
     def test_json_keeps_float_fields_and_inactive_integer_source_compatible(self):
         with tempfile.TemporaryDirectory() as root:
             path = Path(root) / "config.json"
-            path.write_text('{"mode":"rtu-master","access_mode":"read-only","serial":{"port":"TEST"},'
-                            '"duration_s":1.5,"points":[{"data_type":"uint16",'
+            path.write_text('{"schema_version":4,"mode":"rtu-master","access_mode":"read-only","serial":{"port":"TEST"},'
+                            '"duration_s":1.5,"points":[{"operation":"read-input","data_type":"uint16",'
                             '"source":{"value":123.0000000000000001}}]}', encoding="utf-8")
             settings = load_config(path)
-            self.assertEqual(settings.master_operation, "read-input")
+            self.assertEqual(settings.points[0].operation, "read-input")
             self.assertEqual(settings.duration_s, 1.5)
             json.dumps(settings.to_mapping())
-            path.write_text('{"mode":"tcp-slave","points":[{"data_type":"float32",'
+            path.write_text('{"schema_version":4,"mode":"tcp-slave","points":[{"data_type":"float32",'
                             '"source":{"value":12.5}}]}', encoding="utf-8")
             self.assertEqual(load_config(path).points[0].source.value, 12.5)
 
-    def test_legacy_versions_keep_float_type_and_shared_order(self):
-        for version, fields in ((1, dict(addresses=[0])), (2, dict(points=[dict(address=0)]))):
-            old = TaskConfig.from_mapping(dict(schema_version=version, mode="tcp-slave", byte_order="B4321", **fields))
-            self.assertEqual(old.schema_version, 4)
-            self.assertEqual(old.enabled_points[0].data_type, "float32")
-            self.assertEqual(old.enabled_points[0].encoding_order(old.byte_order), "B4321")
-            self.assertEqual(old, TaskConfig.from_mapping(json.loads(json.dumps(old.to_mapping()))))
 
-    def test_per_point_orders_override_shared_default(self):
+    def test_per_point_orders_use_local_defaults(self):
         settings = config([dict(address=0, data_type="int16"),
-                           dict(address=1, data_type="float32"),
-                           dict(address=3, data_type="int32", byte_order="B2143")], byte_order="B4321")
-        self.assertEqual([p.encoding_order(settings.byte_order) for p in settings.enabled_points],
+                           dict(address=1, data_type="float32", byte_order="B4321"),
+                           dict(address=3, data_type="int32", byte_order="B2143")])
+        self.assertEqual([p.encoding_order() for p in settings.enabled_points],
                          ["B12", "B4321", "B2143"])
         self.assertEqual(settings, TaskConfig.from_mapping(settings.to_mapping()))
 
@@ -196,7 +189,7 @@ class NumericConfigurationTests(unittest.TestCase):
 
     def test_read_only_master_does_not_validate_unused_integer_source(self):
         settings = config([dict(data_type="int16", source=dict(kind="sine", value="draft"))],
-                          mode="rtu-master", master_operation="read-holding")
+                          mode="rtu-master", operation="read-holding")
         self.assertEqual(cycle_requests(settings)[0].count, 1)
 
     def test_no_scaling_fields_are_accepted(self):
@@ -220,9 +213,9 @@ class MixedCommunicationTests(unittest.TestCase):
 
     def test_single_word_fc06_and_multiword_raw_diagnostics_remain_available(self):
         with self.assertRaises(ConfigurationError):
-            config(mixed_points(), mode="rtu-master", master_operation="write-single")
+            config(mixed_points(), mode="rtu-master", operation="write-single")
         settings = config([dict(data_type="uint16", source=dict(value=65535))],
-                          mode="rtu-master", master_operation="write-single")
+                          mode="rtu-master", operation="write-single")
         self.assertEqual([(r.function, r.count, r.registers) for r in cycle_requests(settings, [65535])],
                          [(6, 1, (65535,))])
 
@@ -266,7 +259,7 @@ class MixedCommunicationTests(unittest.TestCase):
         self.assertEqual((partial["value"], partial["quality"], partial["registers"]), (None, "partial", [0x7f80]))
 
     def test_rtu_raw_writes_preserve_original_words_and_independent_input_bank(self):
-        settings = config(mixed_points(), mode="rtu-slave", access_mode="read-write", schema_version=3)
+        settings = config(mixed_points(), mode="rtu-slave", access_mode="read-write", areas=("holding", "input"))
         events = []
         bank = RtuRegisters(settings, Clock(), events.append)
         bank.publish(dict(enumerate(MIXED_WORDS)))
@@ -297,7 +290,7 @@ class MixedCommunicationTests(unittest.TestCase):
     def test_mixed_snapshot_over_actual_tcp(self):
         ready, stop = threading.Event(), threading.Event()
         engines, results = [], []
-        settings = config(mixed_points(), duration_s=0, schema_version=3)
+        settings = config(mixed_points(), duration_s=0, areas=("holding", "input"))
         def factory(c, control, emit):
             engine = TcpSlaveEngine(replace(c, port=0), control, emit)
             engines.append(engine)

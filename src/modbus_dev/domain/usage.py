@@ -39,10 +39,8 @@ class ParameterUsage:
             return self.serial
         if key in ("host", "port"):
             return self.mode == "tcp-slave"
-        if key in ("master_operation", "schedule_tolerance_percent"):
+        if key == "schedule_tolerance_percent":
             return self.master
         if key == "readback_every":
             return self.writing
-        if key == "read_function":
-            return self.readback
         return True

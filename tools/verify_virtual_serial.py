@@ -1,4 +1,4 @@
-"""Opt-in Windows virtual COM pair or Linux PTY validation; never install drivers.
+"""通过用户指定的虚拟 COM 或隔离 PTY 验证当前配置，绝不安装驱动。
 
 Uses an independent peer and the actual CLI subprocess. Both named ports must
 be identified as virtual/bridged by the installed driver before opening them.
@@ -15,6 +15,7 @@ import time
 
 import serial
 from serial.tools.list_ports import comports
+from modbus_dev.domain.config import CONFIG_VERSION
 
 
 def frame(data):
@@ -30,10 +31,11 @@ def scenario(root, master, slave, name, *, period=100, points=1, seconds=3,
              faults=False, strict=False, readback=0, waveform="constant", supplied_peer=None):
     folder = root / name
     folder.mkdir()
-    config = dict(schema_version=1, mode="rtu-master", policy="strict" if strict else "continuous",
-                  serial=dict(port=master, baud=9600), addresses=list(range(0, points*2, 2)),
-                  source=dict(kind=waveform, value=1.25), duration_s=seconds,
-                  period_ms=period, timeout_ms=80, readback_every=readback)
+    config = dict(schema_version=CONFIG_VERSION, mode="rtu-master", policy="strict" if strict else "continuous",
+                  serial=dict(port=master, baud=9600),
+                  points=[dict(address=address, operation="write-multiple", readback_every=readback,
+                               source=dict(kind=waveform, value=1.25)) for address in range(0, points*2, 2)],
+                  duration_s=seconds, period_ms=period, timeout_ms=80)
     path = folder / "input.json"
     path.write_text(json.dumps(config, indent=2), encoding="utf-8")
     stop = threading.Event()
